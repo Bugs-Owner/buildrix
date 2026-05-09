@@ -39,10 +39,6 @@ def main():
     p_login.add_argument("--hub", default="", help="Hub URL (e.g., https://buildrix.onrender.com)")
     p_login.add_argument("--register", action="store_true", help="Create a new account")
 
-    # ── register ──
-    p_reg = sub.add_parser("register", help="Create a new Buildrix Hub account")
-    p_reg.add_argument("--hub", default="", help="Hub URL")
-
     # ── logout ──
     sub.add_parser("logout", help="Clear stored credentials")
 
@@ -96,7 +92,6 @@ def main():
     try:
         commands = {
             "login": cmd_login,
-            "register": cmd_register,
             "logout": cmd_logout,
             "whoami": cmd_whoami,
             "config": cmd_config,
@@ -153,33 +148,6 @@ def cmd_login(args):
         hub_url=args.hub,
     )
 
-def cmd_register(args):
-    from buildrix.config import set_auth, set_hub_url
-    from buildrix.hub_client import HubClient
-
-    if args.hub:
-        set_hub_url(args.hub)
-
-    client = HubClient(hub_url=args.hub)
-    print("🏗️  Buildrix — Create Account")
-    print()
-    email = input("  Email: ").strip()
-    display_name = input("  Display name: ").strip()
-    affiliation = input("  Affiliation (university/company): ").strip()
-    password = getpass.getpass("  Password: ")
-    password2 = getpass.getpass("  Confirm password: ")
-    if password != password2:
-        print("❌ Passwords don't match")
-        return
-
-    data = client.register(email, password, display_name, affiliation)
-    set_auth(
-        token=data["access_token"],
-        user={"id": data["user_id"], "name": data["display_name"], "email": email},
-        hub_url=args.hub,
-    )
-    print(f"\n✅ Welcome to Buildrix, {data['display_name']}!")
-    print(f"  You're now logged in and ready to push skills.")
 
 def cmd_logout(args):
     from buildrix.config import clear_auth
