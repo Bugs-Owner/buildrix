@@ -1,0 +1,60 @@
+# Buildrix Test Case Definition
+# Copy this template and fill in your test case details.
+# Test cases define a task + expected outputs so skills can be benchmarked.
+
+name: "your-testcase-name"
+description: "One-line description of what this test case evaluates."
+
+# Category — helps organize and match test cases with skills.
+# Examples: data-extraction, energy-modeling, controls-optimization,
+#           structural-analysis, code-compliance, cost-estimation
+category: "data-extraction"
+domain: "energy"
+difficulty: "medium"       # easy | medium | hard | expert
+tags: []
+
+# What skill(s) is this test case designed to evaluate?
+# Leave empty if it's a general challenge.
+target_skills: []
+
+# Environment requirements — what does the agent need installed?
+environment:
+  python: ">=3.11"
+  packages:
+    - requests
+    - pandas
+  # For complex cases (future):
+  # - energyplus >= 24.1
+  # - openstudio >= 3.8
+
+# Task definition — what should the agent do?
+task:
+  prompt: |
+    (Write the exact prompt the agent will receive.
+    Be specific about location, dates, format, etc.)
+  
+  # Input files (if any) — placed in inputs/ folder
+  input_files: []
+  #   - path: inputs/building_model.idf
+  #     description: "EnergyPlus model file"
+
+# Expected outputs — what does a correct result look like?
+# Place reference files in expected_outputs/ folder.
+outputs:
+  - path: "expected_outputs/result.csv"
+    description: "The expected output data"
+    verification: "exists"    # exists | numerical | structural | custom
+    # For numerical verification:
+    # tolerance: 0.05         # 5% relative error allowed
+    # For structural verification:
+    # required_columns: [col1, col2, col3]
+    # min_rows: 100
+
+# Verification script (optional) — for custom checks.
+# If provided, this script is run after the agent completes the task.
+# It should exit 0 for pass, non-zero for fail.
+verify_script: ""
+# verify_script: "verify.py"
+
+# Review status — managed by the hub, don't edit manually.
+# status: submitted | in_review | revision_needed | golden

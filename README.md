@@ -95,4 +95,3 @@ GitHub Copilot, Cursor, VS Code, and 30+ other tools.
 ## License
 
 Apache 2.0
-# buildrix
