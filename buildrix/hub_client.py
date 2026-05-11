@@ -176,6 +176,21 @@ class HubClient:
         resp.raise_for_status()
         return resp.json()
 
+    def delete_skill(self, skill_id: str) -> dict:
+        """
+        Delete a skill from the hub.
+
+        Only works if the current user is the original author or an admin.
+        Removes the skill, its archive, and all related social records.
+        """
+        resp = requests.delete(
+            self._url(f"/skills/{skill_id}"),
+            headers=self._headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def download_skill(self, skill_id: str, dest: Path) -> Path:
         """Download a skill archive from the hub and extract it."""
         resp = requests.get(

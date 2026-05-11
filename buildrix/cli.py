@@ -16,6 +16,8 @@ Usage:
     buildrix list                       List installed skills
 
     buildrix push <directory>           Push a skill or test case to the hub
+    buildrix push <directory> --update  Update an existing skill you own
+    buildrix delete <skill-name>        Delete a skill you own from the hub
     buildrix search <query>             Search the hub for skills
 
     buildrix info                       Show hub stats and connection info
@@ -81,6 +83,12 @@ def main():
     p_push.add_argument("--update", action="store_true",
                         help="Update an existing skill you own (instead of creating new)")
 
+    # ── delete ──
+    p_delete = sub.add_parser("delete", help="Delete a skill you own from the hub")
+    p_delete.add_argument("name", help="Skill name to delete")
+    p_delete.add_argument("--yes", "-y", action="store_true",
+                          help="Skip confirmation prompt")
+
     # ── search ──
     p_search = sub.add_parser("search", help="Search the hub for skills")
     p_search.add_argument("query", help="Search query")
@@ -108,6 +116,7 @@ def main():
             "uninstall": cmd_uninstall,
             "list": cmd_list,
             "push": cmd_push,
+            "delete": cmd_delete,
             "search": cmd_search,
             "info": cmd_info,
         }
@@ -324,6 +333,46 @@ def cmd_push(args):
 
     else:
         print(f"❌ No SKILL.md or TESTCASE.yaml found in {path}")
+
+
+def cmd_delete(args):
+    from buildrix.config import get_token, get_user
+    from buildrix.hub_client import HubClient
+
+    if not get_token():
+        print("❌ Not logged in. Run: buildrix login")
+        return
+
+    client = HubClient()
+    user = get_user()
+
+    # Look up the skill by name
+    skill = client.get_skill_by_name(args.name)
+    if not skill:
+        print(f"❌ Skill '{args.name}' not found on the hub.")
+        return
+
+    # Check ownership
+    if skill["author_id"] != user.get("id", ""):
+        print(f"❌ Skill '{args.name}' belongs to another contributor. Only the author or an admin can delete it.")
+        return
+
+    # Show what will be deleted
+    print(f"  Skill:   {skill['name']} (id: {skill['id']})")
+    print(f"  Version: {skill['version']}")
+    print(f"  Status:  {skill['status']}")
+    print(f"  Downloads: {skill['download_count']}")
+    print()
+
+    # Confirm unless --yes flag
+    if not args.yes:
+        confirm = input("  ⚠️  This will permanently delete the skill and all its likes/comments. Continue? [y/N] ").strip().lower()
+        if confirm not in ("y", "yes"):
+            print("  Cancelled.")
+            return
+
+    result = client.delete_skill(skill["id"])
+    print(f"✅ Skill '{result['name']}' deleted from the hub.")
 
 
 def cmd_search(args):
