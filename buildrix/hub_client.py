@@ -99,6 +99,18 @@ class HubClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_skill_by_name(self, name: str) -> Optional[dict]:
+        """Look up a skill by name. Returns None if not found."""
+        resp = requests.get(
+            self._url(f"/skills/by-name/{name}"),
+            headers=self._headers,
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+
     def push_skill(self, skill_dir: Path) -> dict:
         """
         Package a skill directory and upload to the hub.
@@ -115,13 +127,7 @@ class HubClient:
         meta = _parse_frontmatter(skill_md.read_text())
 
         # Create zip archive in memory
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file_path in skill_dir.rglob("*"):
-                if file_path.is_file() and "__pycache__" not in str(file_path):
-                    arcname = file_path.relative_to(skill_dir)
-                    zf.write(file_path, arcname)
-        zip_buffer.seek(0)
+        zip_buffer = _zip_skill_dir(skill_dir)
 
         # Upload
         resp = requests.post(
@@ -132,6 +138,36 @@ class HubClient:
                 "description": meta.get("description", ""),
                 "domain": meta.get("metadata", {}).get("domain", "general"),
                 "version": meta.get("metadata", {}).get("version", "0.1.0"),
+                "tags": ",".join(meta.get("metadata", {}).get("tags", [])),
+            },
+            files={"file": (f"{skill_dir.name}.zip", zip_buffer, "application/zip")},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def update_skill(self, skill_id: str, skill_dir: Path) -> dict:
+        """
+        Update an existing skill on the hub.
+
+        Re-reads SKILL.md frontmatter, re-zips, and PUTs to the hub API.
+        Only works if the current user is the original author.
+        """
+        skill_dir = Path(skill_dir)
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            raise FileNotFoundError(f"No SKILL.md found in {skill_dir}")
+
+        meta = _parse_frontmatter(skill_md.read_text())
+        zip_buffer = _zip_skill_dir(skill_dir)
+
+        resp = requests.put(
+            self._url(f"/skills/{skill_id}"),
+            headers=self._headers,
+            data={
+                "description": meta.get("description", ""),
+                "domain": meta.get("metadata", {}).get("domain", ""),
+                "version": meta.get("metadata", {}).get("version", ""),
                 "tags": ",".join(meta.get("metadata", {}).get("tags", [])),
             },
             files={"file": (f"{skill_dir.name}.zip", zip_buffer, "application/zip")},
@@ -257,6 +293,18 @@ def _parse_frontmatter(text: str) -> dict:
         return yaml.safe_load(parts[1]) or {}
     except Exception:
         return {}
+
+
+def _zip_skill_dir(skill_dir: Path) -> io.BytesIO:
+    """Zip a skill directory into a BytesIO buffer, excluding __pycache__."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path in skill_dir.rglob("*"):
+            if file_path.is_file() and "__pycache__" not in str(file_path):
+                arcname = file_path.relative_to(skill_dir)
+                zf.write(file_path, arcname)
+    buf.seek(0)
+    return buf
 
 
 def _zip_subdir(directory: Path) -> io.BytesIO:

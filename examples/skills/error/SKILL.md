@@ -1,5 +1,5 @@
 ---
-name: error-notebook
+name: error
 description: >-
   Self-improvement protocol for Buildrix skills. Before using any skill,
   check its NOTES.md for known issues. After fixing an error, log it.

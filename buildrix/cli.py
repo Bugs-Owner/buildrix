@@ -34,6 +34,10 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", help="Available commands")
 
+    # ── register ──
+    p_reg = sub.add_parser("register", help="Create a new Buildrix Hub account")
+    p_reg.add_argument("--hub", default="", help="Hub URL")
+
     # ── login ──
     p_login = sub.add_parser("login", help="Authenticate with the Buildrix Hub")
     p_login.add_argument("--hub", default="", help="Hub URL (e.g., https://buildrix.onrender.com)")
@@ -74,6 +78,8 @@ def main():
     # ── push ──
     p_push = sub.add_parser("push", help="Push a skill or test case to the hub")
     p_push.add_argument("path", help="Path to skill or test case directory")
+    p_push.add_argument("--update", action="store_true",
+                        help="Update an existing skill you own (instead of creating new)")
 
     # ── search ──
     p_search = sub.add_parser("search", help="Search the hub for skills")
@@ -91,6 +97,7 @@ def main():
 
     try:
         commands = {
+            "register": cmd_register,
             "login": cmd_login,
             "logout": cmd_logout,
             "whoami": cmd_whoami,
@@ -113,6 +120,34 @@ def main():
 
 
 # ══════════════════════════════════════════════════════════════════════════
+
+def cmd_register(args):
+    from buildrix.config import set_auth, set_hub_url
+    from buildrix.hub_client import HubClient
+
+    if args.hub:
+        set_hub_url(args.hub)
+
+    client = HubClient(hub_url=args.hub)
+    print("🏗️  Buildrix — Create Account")
+    print()
+    email = input("  Email: ").strip()
+    display_name = input("  Display name: ").strip()
+    affiliation = input("  Affiliation (university/company): ").strip()
+    password = getpass.getpass("  Password: ")
+    password2 = getpass.getpass("  Confirm password: ")
+    if password != password2:
+        print("❌ Passwords don't match")
+        return
+
+    data = client.register(email, password, display_name, affiliation)
+    set_auth(
+        token=data["access_token"],
+        user={"id": data["user_id"], "name": data["display_name"], "email": email},
+        hub_url=args.hub,
+    )
+    print(f"\n✅ Welcome to Buildrix, {data['display_name']}!")
+    print(f"  You're now logged in and ready to push skills.")
 
 def cmd_login(args):
     from buildrix.config import set_auth, set_hub_url
@@ -223,7 +258,7 @@ def cmd_list(args):
 
 def cmd_push(args):
     from buildrix.config import get_token, get_user
-    from buildrix.hub_client import HubClient
+    from buildrix.hub_client import HubClient, _parse_frontmatter
 
     if not get_token():
         print("❌ Not logged in. Run: buildrix login")
@@ -238,13 +273,45 @@ def cmd_push(args):
     user = get_user()
 
     if (path / "SKILL.md").exists():
-        print(f"  Pushing skill from {path}...")
-        result = client.push_skill(path)
-        print(f"✅ Skill '{result['name']}' submitted!")
-        print(f"  ID:     {result['id']}")
-        print(f"  Status: {result['status']}")
-        print(f"  Author: {user.get('name', '')} ({user.get('email', '')})")
-        print(f"\n  View on hub or wait for LLM review.")
+        # Read the skill name from frontmatter to check for duplicates
+        meta = _parse_frontmatter((path / "SKILL.md").read_text())
+        skill_name = meta.get("name", path.name)
+
+        # Check if this skill already exists on the hub
+        existing = client.get_skill_by_name(skill_name)
+
+        if existing and args.update:
+            # Explicit --update: update the existing skill
+            if existing["author_id"] != user.get("id", ""):
+                print(f"❌ Skill '{skill_name}' belongs to another contributor. You can't update it.")
+                return
+            print(f"  Updating skill '{skill_name}' (id: {existing['id']})...")
+            result = client.update_skill(existing["id"], path)
+            print(f"✅ Skill '{result['name']}' updated!")
+            print(f"  ID:      {result['id']}")
+            print(f"  Version: {result['version']}")
+            print(f"  Status:  {result['status']} (will go through review again)")
+
+        elif existing and not args.update:
+            # Skill exists but no --update flag — guide the user
+            if existing["author_id"] == user.get("id", ""):
+                print(f"⚠️  Skill '{skill_name}' already exists (id: {existing['id']}) and you own it.")
+                print(f"  To update it, run:")
+                print(f"    buildrix push {path} --update")
+            else:
+                print(f"❌ Skill '{skill_name}' already exists and belongs to another contributor.")
+                print(f"  Choose a different name in your SKILL.md frontmatter.")
+            return
+
+        else:
+            # New skill — submit it
+            print(f"  Pushing skill from {path}...")
+            result = client.push_skill(path)
+            print(f"✅ Skill '{result['name']}' submitted!")
+            print(f"  ID:     {result['id']}")
+            print(f"  Status: {result['status']}")
+            print(f"  Author: {user.get('name', '')} ({user.get('email', '')})")
+            print(f"\n  View on hub or wait for LLM review.")
 
     elif (path / "TESTCASE.yaml").exists():
         print(f"  Pushing test case from {path}...")
