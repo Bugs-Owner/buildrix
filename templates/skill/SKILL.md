@@ -8,7 +8,7 @@ license: Apache-2.0
 metadata:
   author: your-name-or-org
   version: "0.1.0"
-  domain: general          # energy | structural | architectural | mep | cost | general
+  domain: general          # general | energy-modeling | control-optimization | semantic-modeling | lighting | code-compliance | thermal-comfort
   tags: []                 # e.g., [weather, solar, HVAC, EnergyPlus]
 ---
 

@@ -7,7 +7,7 @@ construction (AEC) workflows. Compatible with Claude Code, OpenAI Codex,
 Gemini CLI, and any tool supporting the
 [Agent Skills](https://agentskills.io) open standard.
 
-> Community hub: [buildrix-hub](https://YOUR-RENDER-URL.onrender.com)
+> Community hub: [buildrix-hub](https://buildrixhub.onrender.com/)
 > (browse skills, test cases, challenges, leaderboard)
 
 ---
@@ -16,7 +16,7 @@ Gemini CLI, and any tool supporting the
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR-USERNAME/buildrix.git
+git clone https://github.com/Bugs-Owner/buildrix.git
 cd buildrix
 
 # 2. Install dependencies
@@ -62,7 +62,7 @@ buildrix/
 2. Edit `SKILL.md` — follow the [Agent Skills spec](https://agentskills.io/specification)
 3. Add your scripts to `scripts/`
 4. Test locally
-5. Submit to the [Buildrix Hub](https://YOUR-RENDER-URL.onrender.com)
+5. Submit to the [Buildrix Hub](https://buildrixhub.onrender.com/)
 
 ## Creating a Test Case
 
@@ -88,8 +88,8 @@ GitHub Copilot, Cursor, VS Code, and 30+ other tools.
 
 ## Community
 
-- **Browse skills & challenges:** [Buildrix Hub](https://YOUR-RENDER-URL.onrender.com)
-- **Report issues:** [GitHub Issues](https://github.com/YOUR-USERNAME/buildrix/issues)
+- **Browse skills & challenges:** [Buildrix Hub](https://buildrixhub.onrender.com/)
+- **Report issues:** [GitHub Issues](https://github.com/Bugs-Owner/buildrix/issues)
 - **Contribute:** See examples/ for reference, then submit your own
 
 ## License

@@ -73,13 +73,16 @@ class HubClient:
 
     # ── Skills ────────────────────────────────────────────────────────────
 
-    def list_skills(self, domain: str = "", search: str = "") -> list[dict]:
+    def list_skills(self, domain: str = "", search: str = "",
+                    sort_by: str = "") -> list[dict]:
         """List skills from the hub."""
         params = {}
         if domain:
             params["domain"] = domain
         if search:
             params["search"] = search
+        if sort_by:
+            params["sort_by"] = sort_by
         resp = requests.get(
             self._url("/skills/"),
             params=params,

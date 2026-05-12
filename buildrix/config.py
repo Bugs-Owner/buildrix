@@ -13,6 +13,17 @@ DEFAULT_HUB_URL = "http://localhost:8000"
 # Claude Code integration
 CLAUDE_SKILLS_DIR = Path.home() / ".claude" / "skills"
 
+# Canonical domain list — must match the hub frontend DOMAINS
+VALID_DOMAINS = [
+    "general",
+    "energy-modeling",
+    "control-optimization",
+    "semantic-modeling",
+    "lighting",
+    "code-compliance",
+    "thermal-comfort",
+]
+
 
 def ensure_dirs():
     """Create local directories if they don't exist."""

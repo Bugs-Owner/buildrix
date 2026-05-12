@@ -10,15 +10,19 @@ Usage:
     buildrix new skill <name>           Scaffold a new skill from template
     buildrix new testcase <name>        Scaffold a new test case from template
 
-    buildrix install <skill-name>       Download & install a skill from the hub
+    buildrix install <name> [name2 ...] Download & install skill(s) from the hub
     buildrix dev <skill-dir>            Install a local skill for development
-    buildrix uninstall <skill-name>     Remove an installed skill
+    buildrix uninstall <name> [...]     Remove installed skill(s)
     buildrix list                       List installed skills
 
-    buildrix push <directory>           Push a skill or test case to the hub
-    buildrix push <directory> --update  Update an existing skill you own
-    buildrix delete <skill-name>        Delete a skill you own from the hub
+    buildrix push <dir> [dir2 ...]      Push skill(s) or test case(s) to the hub
+    buildrix push <parent-dir> --all    Auto-discover and push all skills in a dir
+    buildrix push <dir> --update        Update existing skill(s) you own
+    buildrix delete <name> [...] --yes  Delete skill(s) you own from the hub
     buildrix search <query>             Search the hub for skills
+    buildrix browse                     List all skills on the hub
+    buildrix browse --domain <domain>   List skills filtered by domain
+    buildrix domains                    Show valid domain categories
 
     buildrix info                       Show hub stats and connection info
 """
@@ -63,29 +67,31 @@ def main():
     p_new.add_argument("--dir", default=".", help="Parent directory")
 
     # ── install ──
-    p_install = sub.add_parser("install", help="Install a skill from the hub")
-    p_install.add_argument("name", help="Skill name to install")
+    p_install = sub.add_parser("install", help="Install skill(s) from the hub")
+    p_install.add_argument("names", nargs="+", help="Skill name(s) to install")
 
     # ── dev ──
     p_dev = sub.add_parser("dev", help="Install a local skill for development/testing")
     p_dev.add_argument("path", help="Path to skill directory")
 
     # ── uninstall ──
-    p_uninstall = sub.add_parser("uninstall", help="Remove an installed skill")
-    p_uninstall.add_argument("name", help="Skill name to remove")
+    p_uninstall = sub.add_parser("uninstall", help="Remove installed skill(s)")
+    p_uninstall.add_argument("names", nargs="+", help="Skill name(s) to remove")
 
     # ── list ──
     sub.add_parser("list", help="List installed skills")
 
     # ── push ──
-    p_push = sub.add_parser("push", help="Push a skill or test case to the hub")
-    p_push.add_argument("path", help="Path to skill or test case directory")
+    p_push = sub.add_parser("push", help="Push skill(s) or test case(s) to the hub")
+    p_push.add_argument("paths", nargs="+", help="Path(s) to skill or test case directories")
     p_push.add_argument("--update", action="store_true",
-                        help="Update an existing skill you own (instead of creating new)")
+                        help="Update existing skill(s) you own (instead of creating new)")
+    p_push.add_argument("--all", action="store_true", dest="push_all",
+                        help="Auto-discover and push all skills under a parent directory")
 
     # ── delete ──
-    p_delete = sub.add_parser("delete", help="Delete a skill you own from the hub")
-    p_delete.add_argument("name", help="Skill name to delete")
+    p_delete = sub.add_parser("delete", help="Delete skill(s) you own from the hub")
+    p_delete.add_argument("names", nargs="+", help="Skill name(s) to delete")
     p_delete.add_argument("--yes", "-y", action="store_true",
                           help="Skip confirmation prompt")
 
@@ -93,6 +99,18 @@ def main():
     p_search = sub.add_parser("search", help="Search the hub for skills")
     p_search.add_argument("query", help="Search query")
     p_search.add_argument("--domain", default="", help="Filter by domain")
+
+    # ── browse ──
+    p_browse = sub.add_parser("browse", help="List all skills on the hub")
+    p_browse.add_argument("--domain", default="", help="Filter by domain")
+    p_browse.add_argument(
+        "--sort", default="newest",
+        choices=["newest", "oldest", "most_liked", "most_downloaded", "most_saved"],
+        help="Sort order (default: newest)",
+    )
+
+    # ── domains ──
+    sub.add_parser("domains", help="List valid domain categories")
 
     # ── info ──
     sub.add_parser("info", help="Show hub stats and connection info")
@@ -118,6 +136,8 @@ def main():
             "push": cmd_push,
             "delete": cmd_delete,
             "search": cmd_search,
+            "browse": cmd_browse,
+            "domains": cmd_domains,
             "info": cmd_info,
         }
         commands[args.command](args)
@@ -227,8 +247,19 @@ def cmd_new(args):
 
 def cmd_install(args):
     from buildrix.skill_manager import install_skill
-    install_skill(args.name)
-    print(f"\n✅ Skill '{args.name}' installed and linked to Claude Code")
+
+    ok, fail = [], []
+    for name in args.names:
+        try:
+            install_skill(name)
+            ok.append(name)
+            print(f"✅ '{name}' installed")
+        except Exception as e:
+            fail.append(name)
+            print(f"❌ '{name}' failed: {e}")
+
+    if len(args.names) > 1:
+        print(f"\n  Summary: {len(ok)} installed, {len(fail)} failed")
 
 
 def cmd_dev(args):
@@ -239,8 +270,13 @@ def cmd_dev(args):
 
 def cmd_uninstall(args):
     from buildrix.skill_manager import uninstall_skill
-    uninstall_skill(args.name)
-    print(f"✅ Skill '{args.name}' removed")
+
+    for name in args.names:
+        try:
+            uninstall_skill(name)
+            print(f"✅ '{name}' removed")
+        except Exception as e:
+            print(f"❌ '{name}' failed: {e}")
 
 
 def cmd_list(args):
@@ -265,74 +301,122 @@ def cmd_list(args):
     print()
 
 
+def _discover_skill_dirs(paths: list[str], push_all: bool) -> list[Path]:
+    """Resolve paths into a flat list of pushable skill/testcase directories."""
+    dirs = []
+    for p in paths:
+        path = Path(p)
+        if not path.is_dir():
+            print(f"⚠️  Skipping (not a directory): {path}")
+            continue
+
+        if push_all:
+            # Auto-discover: find all sub-dirs containing SKILL.md or TESTCASE.yaml
+            found = sorted(
+                sub for sub in path.iterdir()
+                if sub.is_dir()
+                and ((sub / "SKILL.md").exists() or (sub / "TESTCASE.yaml").exists())
+            )
+            if not found:
+                print(f"⚠️  No skills or test cases found under {path}/")
+            dirs.extend(found)
+        elif (path / "SKILL.md").exists() or (path / "TESTCASE.yaml").exists():
+            dirs.append(path)
+        else:
+            # Maybe the user meant --all? Check if children look like skills.
+            children = [
+                sub for sub in path.iterdir()
+                if sub.is_dir()
+                and ((sub / "SKILL.md").exists() or (sub / "TESTCASE.yaml").exists())
+            ]
+            if children:
+                print(f"⚠️  '{path}' has no SKILL.md itself, but contains {len(children)} skill(s).")
+                print(f"  Did you mean:  buildrix push {path} --all")
+            else:
+                print(f"❌ No SKILL.md or TESTCASE.yaml found in {path}")
+    return dirs
+
+
+def _push_one(path: Path, client, user: dict, update: bool) -> bool:
+    """Push a single skill or test case. Returns True on success."""
+    from buildrix.hub_client import _parse_frontmatter
+
+    if (path / "SKILL.md").exists():
+        meta = _parse_frontmatter((path / "SKILL.md").read_text())
+        skill_name = meta.get("name", path.name)
+
+        # Warn about invalid domain
+        from buildrix.config import VALID_DOMAINS
+        skill_domain = meta.get("metadata", {}).get("domain", "general")
+        if skill_domain not in VALID_DOMAINS:
+            print(f"  ⚠️  Domain '{skill_domain}' is not a recognized hub category.")
+            print(f"    Valid: {', '.join(VALID_DOMAINS)}")
+
+        existing = client.get_skill_by_name(skill_name)
+
+        if existing and update:
+            if existing["author_id"] != user.get("id", ""):
+                print(f"  ❌ '{skill_name}' belongs to another contributor.")
+                return False
+            result = client.update_skill(existing["id"], path)
+            print(f"  ✅ '{result['name']}' updated (v{result['version']}, {result['status']})")
+            return True
+
+        elif existing and not update:
+            if existing["author_id"] == user.get("id", ""):
+                print(f"  ⚠️  '{skill_name}' already exists. Use --update to overwrite.")
+            else:
+                print(f"  ❌ '{skill_name}' already exists (owned by someone else).")
+            return False
+
+        else:
+            result = client.push_skill(path)
+            print(f"  ✅ '{result['name']}' submitted ({result['status']})")
+            return True
+
+    elif (path / "TESTCASE.yaml").exists():
+        result = client.push_testcase(path)
+        print(f"  ✅ Test case '{result['name']}' submitted ({result['status']})")
+        return True
+
+    else:
+        print(f"  ❌ No SKILL.md or TESTCASE.yaml in {path}")
+        return False
+
+
 def cmd_push(args):
     from buildrix.config import get_token, get_user
-    from buildrix.hub_client import HubClient, _parse_frontmatter
+    from buildrix.hub_client import HubClient
 
     if not get_token():
         print("❌ Not logged in. Run: buildrix login")
         return
 
-    path = Path(args.path)
-    if not path.is_dir():
-        print(f"❌ Not a directory: {path}")
+    dirs = _discover_skill_dirs(args.paths, args.push_all)
+    if not dirs:
         return
 
     client = HubClient()
     user = get_user()
 
-    if (path / "SKILL.md").exists():
-        # Read the skill name from frontmatter to check for duplicates
-        meta = _parse_frontmatter((path / "SKILL.md").read_text())
-        skill_name = meta.get("name", path.name)
+    if len(dirs) > 1:
+        print(f"\n  Pushing {len(dirs)} item(s)...\n")
 
-        # Check if this skill already exists on the hub
-        existing = client.get_skill_by_name(skill_name)
-
-        if existing and args.update:
-            # Explicit --update: update the existing skill
-            if existing["author_id"] != user.get("id", ""):
-                print(f"❌ Skill '{skill_name}' belongs to another contributor. You can't update it.")
-                return
-            print(f"  Updating skill '{skill_name}' (id: {existing['id']})...")
-            result = client.update_skill(existing["id"], path)
-            print(f"✅ Skill '{result['name']}' updated!")
-            print(f"  ID:      {result['id']}")
-            print(f"  Version: {result['version']}")
-            print(f"  Status:  {result['status']} (will go through review again)")
-
-        elif existing and not args.update:
-            # Skill exists but no --update flag — guide the user
-            if existing["author_id"] == user.get("id", ""):
-                print(f"⚠️  Skill '{skill_name}' already exists (id: {existing['id']}) and you own it.")
-                print(f"  To update it, run:")
-                print(f"    buildrix push {path} --update")
+    ok, fail = 0, 0
+    for d in dirs:
+        print(f"  [{d.name}]")
+        try:
+            if _push_one(d, client, user, args.update):
+                ok += 1
             else:
-                print(f"❌ Skill '{skill_name}' already exists and belongs to another contributor.")
-                print(f"  Choose a different name in your SKILL.md frontmatter.")
-            return
+                fail += 1
+        except Exception as e:
+            print(f"  ❌ {d.name}: {e}")
+            fail += 1
 
-        else:
-            # New skill — submit it
-            print(f"  Pushing skill from {path}...")
-            result = client.push_skill(path)
-            print(f"✅ Skill '{result['name']}' submitted!")
-            print(f"  ID:     {result['id']}")
-            print(f"  Status: {result['status']}")
-            print(f"  Author: {user.get('name', '')} ({user.get('email', '')})")
-            print(f"\n  View on hub or wait for LLM review.")
+    if len(dirs) > 1:
+        print(f"\n  Summary: {ok} pushed, {fail} failed")
 
-    elif (path / "TESTCASE.yaml").exists():
-        print(f"  Pushing test case from {path}...")
-        result = client.push_testcase(path)
-        print(f"✅ Test case '{result['name']}' submitted!")
-        print(f"  ID:     {result['id']}")
-        print(f"  Status: {result['status']}")
-        print(f"  Author: {user.get('name', '')} ({user.get('email', '')})")
-        print(f"\n  An LLM reviewer will evaluate your submission.")
-
-    else:
-        print(f"❌ No SKILL.md or TESTCASE.yaml found in {path}")
 
 
 def cmd_delete(args):
@@ -346,33 +430,46 @@ def cmd_delete(args):
     client = HubClient()
     user = get_user()
 
-    # Look up the skill by name
-    skill = client.get_skill_by_name(args.name)
-    if not skill:
-        print(f"❌ Skill '{args.name}' not found on the hub.")
-        return
+    # Resolve all skills first so we can show a summary before confirming
+    to_delete = []
+    for name in args.names:
+        skill = client.get_skill_by_name(name)
+        if not skill:
+            print(f"❌ '{name}' not found on the hub.")
+            continue
+        if skill["author_id"] != user.get("id", ""):
+            print(f"❌ '{name}' belongs to another contributor. Skipping.")
+            continue
+        to_delete.append(skill)
 
-    # Check ownership
-    if skill["author_id"] != user.get("id", ""):
-        print(f"❌ Skill '{args.name}' belongs to another contributor. Only the author or an admin can delete it.")
+    if not to_delete:
         return
 
     # Show what will be deleted
-    print(f"  Skill:   {skill['name']} (id: {skill['id']})")
-    print(f"  Version: {skill['version']}")
-    print(f"  Status:  {skill['status']}")
-    print(f"  Downloads: {skill['download_count']}")
+    print()
+    for s in to_delete:
+        print(f"  • {s['name']} (v{s['version']}, {s['download_count']} downloads)")
     print()
 
     # Confirm unless --yes flag
     if not args.yes:
-        confirm = input("  ⚠️  This will permanently delete the skill and all its likes/comments. Continue? [y/N] ").strip().lower()
+        noun = "skill" if len(to_delete) == 1 else f"{len(to_delete)} skills"
+        confirm = input(f"  ⚠️  Permanently delete {noun} and all likes/comments? [y/N] ").strip().lower()
         if confirm not in ("y", "yes"):
             print("  Cancelled.")
             return
 
-    result = client.delete_skill(skill["id"])
-    print(f"✅ Skill '{result['name']}' deleted from the hub.")
+    ok = 0
+    for s in to_delete:
+        try:
+            client.delete_skill(s["id"])
+            print(f"  ✅ '{s['name']}' deleted")
+            ok += 1
+        except Exception as e:
+            print(f"  ❌ '{s['name']}' failed: {e}")
+
+    if len(to_delete) > 1:
+        print(f"\n  Summary: {ok}/{len(to_delete)} deleted")
 
 
 def cmd_search(args):
@@ -390,6 +487,39 @@ def cmd_search(args):
         print(f"    {s['description'][:80]}")
         print(f"    by {s['author_name']} | v{s['version']} | {s['download_count']} downloads")
         print()
+
+
+def cmd_browse(args):
+    from buildrix.hub_client import HubClient
+    client = HubClient()
+    skills = client.list_skills(
+        domain=args.domain,
+        sort_by=args.sort,
+    )
+
+    if not skills:
+        domain_hint = f" in domain '{args.domain}'" if args.domain else ""
+        print(f"  No skills found{domain_hint}.")
+        return
+
+    print(f"\n  Hub skills ({len(skills)}):\n")
+    for s in skills:
+        status_icon = "✅" if s["status"] == "accepted" else "📝"
+        print(f"  {status_icon} {s['name']} [{s['domain']}]")
+        print(f"    {s['description'][:80]}")
+        print(f"    by {s['author_name']} | v{s['version']} | ♡ {s.get('like_count', 0)} | ↓ {s['download_count']}")
+        print()
+
+
+def cmd_domains(args):
+    from buildrix.config import VALID_DOMAINS
+    print("\n  Valid domain categories:\n")
+    for d in VALID_DOMAINS:
+        print(f"  • {d}")
+    print()
+    print("  Use these in your SKILL.md frontmatter and config.yaml.")
+    print("  Example: domain: energy-modeling")
+    print()
 
 
 def cmd_info(args):
