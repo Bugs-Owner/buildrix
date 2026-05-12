@@ -35,10 +35,11 @@ TOOL_MANIFEST = {
     "energyplus": {
         "24.1.0": {
             "urls": {
-                "linux":   "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3f2-Linux-Ubuntu22.04-x86_64.tar.gz",
-                "windows": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3f2-Windows-x86_64.zip",
-                "mac":     "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3f2-macOS-x86_64.tar.gz",
-                "mac_arm": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3f2-macOS-arm64.tar.gz",
+                "linux": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Linux-Ubuntu22.04-x86_64.tar.gz",
+                "linux_arm": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Linux-Ubuntu22.04-arm64.tar.gz",
+                "windows": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Windows-x86_64.zip",
+                "mac": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Darwin-macOS12.1-x86_64.tar.gz",
+                "mac_arm": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Darwin-macOS12.1-arm64.tar.gz",
             },
             "bin": {
                 "linux":   "energyplus",
@@ -65,10 +66,11 @@ TOOL_MANIFEST = {
     "openstudio": {
         "3.9.0": {
             "urls": {
-                "linux":   "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+e3cb53c973-Ubuntu-22.04-x86_64.tar.gz",
-                "windows": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+e3cb53c973-Windows.zip",
-                "mac":     "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+e3cb53c973-Darwin-x86_64.tar.gz",
-                "mac_arm": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+e3cb53c973-Darwin-arm64.tar.gz",
+                "linux": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Ubuntu-22.04-x86_64.tar.gz",
+                "linux_arm": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Ubuntu-22.04-arm64.tar.gz",
+                "windows": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Windows.tar.gz",
+                "mac": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Darwin-x86_64.tar.gz",
+                "mac_arm": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Darwin-arm64.tar.gz",
             },
             "bin": {
                 "linux":   "bin/openstudio",
