@@ -99,11 +99,14 @@ def uninstall_skill(name: str):
         shutil.rmtree(dest)
         print(f"  Removed {dest}")
 
-    # Remove symlink
+    # Remove Claude Code link (symlink on Linux/Mac, directory copy on Windows)
     link = CLAUDE_SKILLS_DIR / name
-    if link.is_symlink() or link.exists():
+    if link.is_symlink():
         link.unlink()
         print(f"  Removed Claude Code link")
+    elif link.exists():
+        shutil.rmtree(link)
+        print(f"  Removed Claude Code copy")
 
 
 def _link_to_claude(name: str, source: Path):
@@ -111,13 +114,16 @@ def _link_to_claude(name: str, source: Path):
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     link = CLAUDE_SKILLS_DIR / name
 
-    if link.is_symlink() or link.exists():
+    # Clean up existing — symlink or directory copy
+    if link.is_symlink():
         link.unlink()
+    elif link.exists():
+        shutil.rmtree(link)
 
     try:
         link.symlink_to(source)
         print(f"  Linked to Claude Code: {link}")
     except OSError:
-        # Symlinks may fail on some systems, fall back to copy
+        # Symlinks may fail on Windows without admin, fall back to copy
         shutil.copytree(source, link)
         print(f"  Copied to Claude Code: {link} (symlink not supported)")
