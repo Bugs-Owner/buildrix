@@ -9,14 +9,15 @@ This guide walks you through contributing a new skill, using the
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR-USERNAME/buildrix.git
+git clone https://github.com/Bugs-Owner/buildrix.git
 cd buildrix
 
 # 2. Install the package (makes the `buildrix` CLI available)
 pip install -e .
 
 # 3. Login to the hub (create an account if needed)
-buildrix login --register --hub https://YOUR-RENDER-URL.onrender.com
+buildrix config hub https://buildrixhub.onrender.com
+buildrix login --register
 
 # 4. Verify
 buildrix whoami
@@ -37,7 +38,9 @@ This creates:
 ```
 heat-wave-identification/
 ├── SKILL.md          # ← Edit this: metadata + instructions
-├── scripts/          # ← Put your code here
+├── config.yaml       # ← Fill in metadata
+├── scripts/main.py   # ← Put your code here
+├── tests/            # ← Add tests
 ├── references/       # ← Optional: docs, papers
 └── assets/           # ← Optional: images, templates
 ```
@@ -58,7 +61,7 @@ license: Apache-2.0
 metadata:
   author: your-name
   version: "0.1.0"
-  domain: energy
+  domain: energy-modeling
   tags: [heat-wave, extreme-weather, cooling]
   depends_on: [weather-data-extraction]
 ---
@@ -67,7 +70,10 @@ metadata:
 Key things in the frontmatter:
 - `description` — the agent reads this to decide when to activate your skill.
   Include keywords users are likely to say.
-- `metadata.domain` — matches the hub's domain categories
+- `metadata.domain` — must match the hub's domain categories.
+  Run `buildrix domains` to see valid options:
+  `general`, `energy-modeling`, `control-optimization`, `semantic-modeling`,
+  `lighting`, `code-compliance`, `thermal-comfort`
 - `metadata.depends_on` — if your skill uses another skill, list it here
 
 The markdown body contains instructions the agent follows. Write it like
@@ -113,19 +119,26 @@ skill (to identify events).
 ### Step 5: Push to the Hub
 
 ```bash
+# Push a single skill
 buildrix push heat-wave-identification/
+
+# Or push all skills at once
+buildrix push skillset/ --all
+
+# Update existing skills you own
+buildrix push skillset/ --all --update
 ```
 
-This packages your skill and uploads it to the Buildrix Hub. The output:
-
+Output:
 ```
-  Pushing skill from heat-wave-identification/...
-✅ Skill 'heat-wave-identification' submitted!
-  ID:     a3f2c8901b4d7e5f
-  Status: submitted
-  Author: Your Name (you@example.com)
+  Pushing 7 item(s)...
 
-  View on hub or wait for LLM review.
+  [heat-wave-identification]
+  ✅ 'heat-wave-identification' submitted (submitted)
+  [weather-data-extraction]
+  ✅ 'weather-data-extraction' updated (v0.1.0, submitted)
+
+  Summary: 7 pushed, 0 failed
 ```
 
 An LLM reviewer will evaluate your submission and provide feedback.
@@ -146,7 +159,7 @@ Edit `TESTCASE.yaml`:
 ```yaml
 name: "phoenix-heat-waves-summer-2024"
 category: "data-extraction"
-domain: "energy"
+domain: "energy-modeling"
 difficulty: "medium"
 
 task:
@@ -197,6 +210,26 @@ User: "What were the extreme heat events in Syracuse last year?"
 You didn't need to know how to fetch weather data — the community already
 built that skill. You contributed your domain expertise (heat wave
 identification), and the harness chains them together.
+
+---
+
+## Batch Operations
+
+The CLI supports batch operations to save time:
+
+```bash
+# Install multiple skills at once
+buildrix install weather-data-extraction heat-wave-identification energyplus-eppy
+
+# Uninstall multiple
+buildrix uninstall weather-data-extraction heat-wave-identification
+
+# Push everything under skillset/
+buildrix push skillset/ --all --update
+
+# Delete multiple from the hub
+buildrix delete old-skill-1 old-skill-2 --yes
+```
 
 ---
 
