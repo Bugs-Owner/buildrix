@@ -1,10 +1,11 @@
-"""Skill manager — install, list, uninstall, and link skills to agent tools."""
+"""Skill manager — install, list, uninstall, and provision toolchain."""
 
 import shutil
 from pathlib import Path
 
+import yaml
+
 from buildrix.config import SKILLS_DIR, CLAUDE_SKILLS_DIR
-from buildrix.hub_client import HubClient
 
 
 def installed_skills() -> list[dict]:
@@ -18,7 +19,6 @@ def installed_skills() -> list[dict]:
             continue
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.exists():
-            # Check one level deeper (in case archive extracted with wrapper dir)
             for sub in skill_dir.iterdir():
                 if sub.is_dir() and (sub / "SKILL.md").exists():
                     skill_md = sub / "SKILL.md"
@@ -39,21 +39,18 @@ def installed_skills() -> list[dict]:
 
 def install_skill(name_or_id: str, hub_url: str = "") -> Path:
     """
-    Download a skill from the hub and install locally.
-
-    1. Search hub for the skill by name
-    2. Download the archive
-    3. Extract to ~/.buildrix/skills/<name>/
-    4. Symlink to ~/.claude/skills/<name>/ for Claude Code discovery
+    Download a skill from the hub, install locally, and provision its
+    toolchain (EnergyPlus, OpenStudio, etc.) automatically.
     """
+    from buildrix.hub_client import HubClient
+
     client = HubClient(hub_url=hub_url)
 
-    # Search by name
     skills = client.list_skills(search=name_or_id)
     if not skills:
         raise ValueError(f"Skill '{name_or_id}' not found on the hub.")
 
-    skill = skills[0]  # Best match
+    skill = skills[0]
     skill_id = skill["id"]
     skill_name = skill["name"]
 
@@ -68,13 +65,15 @@ def install_skill(name_or_id: str, hub_url: str = "") -> Path:
     # Symlink to Claude Code skills directory
     _link_to_claude(skill_name, dest)
 
+    # Auto-provision toolchain from config.yaml
+    provision_toolchain(dest)
+
     return dest
 
 
 def install_local(skill_dir: Path) -> Path:
     """
-    Install a skill from a local directory (copy + link).
-    Useful for developing: test your skill with Claude Code.
+    Install a skill from a local directory (copy + link + provision).
     """
     skill_dir = Path(skill_dir).resolve()
     if not (skill_dir / "SKILL.md").exists():
@@ -89,6 +88,10 @@ def install_local(skill_dir: Path) -> Path:
     print(f"  Installed '{name}' from local directory")
 
     _link_to_claude(name, dest)
+
+    # Auto-provision toolchain from config.yaml
+    provision_toolchain(dest)
+
     return dest
 
 
@@ -99,7 +102,6 @@ def uninstall_skill(name: str):
         shutil.rmtree(dest)
         print(f"  Removed {dest}")
 
-    # Remove Claude Code link (symlink on Linux/Mac, directory copy on Windows)
     link = CLAUDE_SKILLS_DIR / name
     if link.is_symlink():
         link.unlink()
@@ -109,12 +111,57 @@ def uninstall_skill(name: str):
         print(f"  Removed Claude Code copy")
 
 
+# ── Toolchain provisioning ─────────────────────────────────────────
+def provision_toolchain(skill_dir: Path) -> list[str]:
+    """
+    Read a skill's config.yaml and download any declared toolchain
+    dependencies. Returns list of tools provisioned.
+
+    config.yaml format:
+        environment:
+          toolchain:
+            energyplus: "24.1.0"
+            openstudio: "3.9.0"
+            resstock: "v3.3.0"
+    """
+    config_path = skill_dir / "config.yaml"
+    if not config_path.exists():
+        return []
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f) or {}
+
+    toolchain_spec = config.get("environment", {}).get("toolchain", {})
+    if not toolchain_spec:
+        return []
+
+    # Import here to avoid circular imports and so skills without
+    # toolchain needs don't pay the import cost
+    from buildrix.env.toolchain import Toolchain
+
+    print(f"  Provisioning toolchain: {toolchain_spec}")
+    tc = Toolchain()
+    provisioned = []
+
+    for tool, version in toolchain_spec.items():
+        try:
+            tc.ensure(tool, str(version))
+            provisioned.append(f"{tool}=={version}")
+        except Exception as e:
+            print(f"  ⚠️  Failed to provision {tool} {version}: {e}")
+
+    if provisioned:
+        print(f"  ✅ Toolchain ready: {', '.join(provisioned)}")
+
+    return provisioned
+
+
+# ── Internal ───────────────────────────────────────────────────────
 def _link_to_claude(name: str, source: Path):
     """Create symlink in Claude Code's skills directory."""
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     link = CLAUDE_SKILLS_DIR / name
 
-    # Clean up existing — symlink or directory copy
     if link.is_symlink():
         link.unlink()
     elif link.exists():
@@ -124,6 +171,5 @@ def _link_to_claude(name: str, source: Path):
         link.symlink_to(source)
         print(f"  Linked to Claude Code: {link}")
     except OSError:
-        # Symlinks may fail on Windows without admin, fall back to copy
         shutil.copytree(source, link)
         print(f"  Copied to Claude Code: {link} (symlink not supported)")

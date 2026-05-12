@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "buildrix"
-version = "0.1.0"
+version = "0.2.0"
 description = "Open skill framework for building science AI agents"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -21,5 +21,4 @@ buildrix = "buildrix.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["buildrix"]
-# Include templates and examples in the package
 artifacts = ["templates/**/*", "examples/**/*"]

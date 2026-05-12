@@ -25,6 +25,10 @@ Usage:
     buildrix domains                    Show valid domain categories
 
     buildrix info                       Show hub stats and connection info
+
+    buildrix env info                   Show installed toolchain components
+    buildrix env setup <skill-dir>      Provision toolchain for a skill
+    buildrix env clean                  Remove cached downloads
 """
 
 import argparse
@@ -115,6 +119,14 @@ def main():
     # ── info ──
     sub.add_parser("info", help="Show hub stats and connection info")
 
+    # ── env ──
+    p_env = sub.add_parser("env", help="Manage the toolchain environment")
+    env_sub = p_env.add_subparsers(dest="env_command", help="Env subcommands")
+    env_sub.add_parser("info", help="Show installed toolchain components")
+    p_env_setup = env_sub.add_parser("setup", help="Provision toolchain for a skill")
+    p_env_setup.add_argument("path", help="Path to skill directory or installed skill name")
+    env_sub.add_parser("clean", help="Remove cached downloads")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -139,6 +151,7 @@ def main():
             "browse": cmd_browse,
             "domains": cmd_domains,
             "info": cmd_info,
+            "env": cmd_env,
         }
         commands[args.command](args)
     except KeyboardInterrupt:
@@ -549,6 +562,68 @@ def cmd_info(args):
     except Exception:
         print(f"\n  ⚠️  Could not reach hub at {hub_url}")
     print()
+
+
+def cmd_env(args):
+    if not args.env_command:
+        print("Usage: buildrix env {info|setup|clean}")
+        return
+
+    if args.env_command == "info":
+        from buildrix.env.toolchain import Toolchain, TOOLCHAIN_DIR, DOWNLOAD_CACHE
+        tc = Toolchain()
+        info = tc.info()
+        print()
+        print("  🔧 Buildrix Toolchain")
+        print(f"  ─────────────────────────")
+        print(f"  Location:    {TOOLCHAIN_DIR}")
+        print(f"  Cache:       {DOWNLOAD_CACHE}")
+        print(f"  Weather:     {info.weather_dir}")
+        print()
+        if info.versions:
+            print("  Installed:")
+            for tool, ver in info.versions.items():
+                print(f"    • {tool} {ver}")
+            if info.energyplus_bin:
+                print(f"      EnergyPlus binary: {info.energyplus_bin}")
+            if info.openstudio_bin:
+                print(f"      OpenStudio binary: {info.openstudio_bin}")
+            if info.idd_path:
+                print(f"      Energy+.idd:       {info.idd_path}")
+            if info.resstock_dir:
+                print(f"      ResStock repo:     {info.resstock_dir}")
+        else:
+            print("  No tools installed yet.")
+            print("  Install a skill that needs tools: buildrix install resstock-building-generation")
+        print()
+
+    elif args.env_command == "setup":
+        from buildrix.skill_manager import provision_toolchain
+        from buildrix.config import SKILLS_DIR
+
+        path = Path(args.path)
+        # If it's just a name, look in installed skills
+        if not path.exists():
+            path = SKILLS_DIR / args.path
+        if not path.exists():
+            print(f"❌ Skill not found: {args.path}")
+            print(f"   Checked: {Path(args.path).resolve()} and {SKILLS_DIR / args.path}")
+            return
+
+        provisioned = provision_toolchain(path)
+        if not provisioned:
+            print("  No toolchain requirements in this skill's config.yaml.")
+
+    elif args.env_command == "clean":
+        from buildrix.env.toolchain import DOWNLOAD_CACHE
+        if DOWNLOAD_CACHE.exists():
+            import shutil
+            size = sum(f.stat().st_size for f in DOWNLOAD_CACHE.rglob("*") if f.is_file())
+            shutil.rmtree(DOWNLOAD_CACHE)
+            DOWNLOAD_CACHE.mkdir(parents=True, exist_ok=True)
+            print(f"  ✅ Cleared download cache ({size / 1024 / 1024:.0f} MB freed)")
+        else:
+            print("  Cache is already empty.")
 
 
 if __name__ == "__main__":
