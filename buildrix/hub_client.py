@@ -73,16 +73,13 @@ class HubClient:
 
     # ── Skills ────────────────────────────────────────────────────────────
 
-    def list_skills(self, domain: str = "", search: str = "",
-                    sort_by: str = "") -> list[dict]:
+    def list_skills(self, domain: str = "", search: str = "") -> list[dict]:
         """List skills from the hub."""
         params = {}
         if domain:
             params["domain"] = domain
         if search:
             params["search"] = search
-        if sort_by:
-            params["sort_by"] = sort_by
         resp = requests.get(
             self._url("/skills/"),
             params=params,
@@ -153,8 +150,8 @@ class HubClient:
         """
         Update an existing skill on the hub.
 
-        Re-reads SKILL.md frontmatter, re-zips, and PUTs to the hub API.
-        Only works if the current user is the original author.
+        Re-reads SKILL.md frontmatter, re-zips, and POSTs to the hub API.
+        The hub's POST /skills/ handles upsert: same name + same author = update.
         """
         skill_dir = Path(skill_dir)
         skill_md = skill_dir / "SKILL.md"
@@ -164,13 +161,14 @@ class HubClient:
         meta = _parse_frontmatter(skill_md.read_text())
         zip_buffer = _zip_skill_dir(skill_dir)
 
-        resp = requests.put(
-            self._url(f"/skills/{skill_id}"),
+        resp = requests.post(
+            self._url("/skills/"),
             headers=self._headers,
             data={
+                "name": meta.get("name", skill_dir.name),
                 "description": meta.get("description", ""),
-                "domain": meta.get("metadata", {}).get("domain", ""),
-                "version": meta.get("metadata", {}).get("version", ""),
+                "domain": meta.get("metadata", {}).get("domain", "general"),
+                "version": meta.get("metadata", {}).get("version", "0.1.0"),
                 "tags": ",".join(meta.get("metadata", {}).get("tags", [])),
             },
             files={"file": (f"{skill_dir.name}.zip", zip_buffer, "application/zip")},
