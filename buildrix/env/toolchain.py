@@ -3,6 +3,10 @@ Managed toolchain — download, extract, and resolve pinned tool versions.
 
 Everything lives under ~/.buildrix/toolchain/<tool>/<version>/.
 No system-level installs, no admin privileges, no version conflicts.
+
+Skills declare their full tool specs (URLs, binary paths) in config.yaml.
+The toolchain just downloads, extracts, and resolves paths — no hardcoded
+URLs or versions.
 """
 
 import os
@@ -28,74 +32,6 @@ WEATHER_DIR = DATA_DIR / "resstock" / "weather" / "tmy3"
 DOWNLOAD_CACHE = BUILDRIX_HOME / "cache" / "downloads"
 
 
-# ── Tool manifest ──────────────────────────────────────────────────────
-# Update URLs here when new versions ship.
-
-TOOL_MANIFEST = {
-    "energyplus": {
-        "24.1.0": {
-            "urls": {
-                "linux": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Linux-Ubuntu22.04-x86_64.tar.gz",
-                "linux_arm": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Linux-Ubuntu22.04-arm64.tar.gz",
-                "windows": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Windows-x86_64.zip",
-                "mac": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Darwin-macOS12.1-x86_64.tar.gz",
-                "mac_arm": "https://github.com/NREL/EnergyPlus/releases/download/v24.1.0/EnergyPlus-24.1.0-9d7789a3ac-Darwin-macOS12.1-arm64.tar.gz",
-            },
-            "bin": {
-                "linux":   "energyplus",
-                "windows": "energyplus.exe",
-                "mac":     "energyplus",
-                "mac_arm": "energyplus",
-            },
-            "idd": "Energy+.idd",
-        },
-        "22.1.0": {
-            "urls": {
-                "linux":   "https://github.com/NREL/EnergyPlus/releases/download/v22.1.0/EnergyPlus-22.1.0-ed759b17ee-Linux-Ubuntu22.04-x86_64.tar.gz",
-                "windows": "https://github.com/NREL/EnergyPlus/releases/download/v22.1.0/EnergyPlus-22.1.0-ed759b17ee-Windows-x86_64.zip",
-                "mac":     "https://github.com/NREL/EnergyPlus/releases/download/v22.1.0/EnergyPlus-22.1.0-ed759b17ee-macOS-x86_64.tar.gz",
-            },
-            "bin": {
-                "linux":   "energyplus",
-                "windows": "energyplus.exe",
-                "mac":     "energyplus",
-            },
-            "idd": "Energy+.idd",
-        },
-    },
-    "openstudio": {
-        "3.9.0": {
-            "urls": {
-                "linux": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Ubuntu-22.04-x86_64.tar.gz",
-                "linux_arm": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Ubuntu-22.04-arm64.tar.gz",
-                "windows": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Windows.tar.gz",
-                "mac": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Darwin-x86_64.tar.gz",
-                "mac_arm": "https://github.com/NREL/OpenStudio/releases/download/v3.9.0/OpenStudio-3.9.0+c77fbb9569-Darwin-arm64.tar.gz",
-            },
-            "bin": {
-                "linux":   "bin/openstudio",
-                "windows": "bin/openstudio.exe",
-                "mac":     "bin/openstudio",
-                "mac_arm": "bin/openstudio",
-            },
-        },
-    },
-    "resstock": {
-        "v3.3.0": {
-            "type": "git",
-            "repo": "https://github.com/NREL/resstock.git",
-            "tag": "v3.3.0",
-        },
-    },
-}
-
-DEFAULTS = {
-    "energyplus": "24.1.0",
-    "openstudio": "3.9.0",
-    "resstock":   "v3.3.0",
-}
-
-
 # ── Result container ───────────────────────────────────────────────────
 @dataclass
 class ToolchainInfo:
@@ -115,10 +51,21 @@ class Toolchain:
     """
     Managed toolchain for Buildrix skills.
 
-    Downloads exact pinned versions into ~/.buildrix/toolchain/.
+    Skills provide full tool specs in their config.yaml:
 
-        tc = Toolchain()
-        tc.ensure("energyplus", "24.1.0")
+        environment:
+          toolchain:
+            energyplus:
+              version: "24.1.0"
+              urls:
+                linux: "https://github.com/..."
+                windows: "https://github.com/..."
+              bin:
+                linux: "energyplus"
+                windows: "energyplus.exe"
+
+    Usage:
+        tc = Toolchain.from_skill_config("config.yaml")
         ep = tc.bin("energyplus")
     """
 
@@ -126,7 +73,8 @@ class Toolchain:
         self.root = Path(toolchain_dir) if toolchain_dir else TOOLCHAIN_DIR
         self.root.mkdir(parents=True, exist_ok=True)
         DOWNLOAD_CACHE.mkdir(parents=True, exist_ok=True)
-        self._installed: dict[str, str] = {}
+        self._installed: dict[str, str] = {}       # tool -> version
+        self._specs: dict[str, dict] = {}           # tool -> full spec
         self._scan_installed()
 
     # ── Public API ─────────────────────────────────────────────────
@@ -134,10 +82,8 @@ class Toolchain:
     @classmethod
     def from_skill_config(cls, config_path: str) -> "Toolchain":
         """
-        Create a Toolchain and ensure all tools declared in a skill's
-        config.yaml are installed.
-
-            tc = Toolchain.from_skill_config("path/to/config.yaml")
+        Create a Toolchain from a skill's config.yaml.
+        Reads full tool specs and ensures everything is installed.
         """
         config_path = Path(config_path)
         if not config_path.exists():
@@ -147,21 +93,44 @@ class Toolchain:
             config = yaml.safe_load(f) or {}
 
         tc = cls()
-        toolchain_spec = config.get("environment", {}).get("toolchain", {})
-        for tool, version in toolchain_spec.items():
-            tc.ensure(tool, str(version))
+        toolchain_section = config.get("environment", {}).get("toolchain", {})
+
+        for tool_name, spec in toolchain_section.items():
+            if isinstance(spec, dict):
+                # Full spec with URLs — the correct way
+                tc.ensure(tool_name, spec=spec)
+            elif isinstance(spec, str):
+                # Bare version string (legacy/simple skills)
+                tc.ensure(tool_name, version=spec)
 
         return tc
 
-    def ensure(self, tool: str, version: str = "") -> Path:
+    def ensure(self, tool: str, version: str = "",
+               spec: Optional[dict] = None) -> Path:
         """
-        Ensure a tool is installed at the specified version.
-        Downloads and extracts if not already present.
-        Returns the tool's installation directory.
+        Ensure a tool is installed.
+
+        Parameters
+        ----------
+        tool : str
+            Tool name (e.g., "energyplus").
+        version : str
+            Version string (used when spec not provided).
+        spec : dict, optional
+            Full tool spec from config.yaml with version, urls, bin, etc.
         """
-        version = version or DEFAULTS.get(tool, "")
+        if spec:
+            version = str(spec.get("version", version))
+            self._specs[tool] = spec
+
         if not version:
-            raise ValueError(f"No version specified for '{tool}' and no default.")
+            # Check if already installed (from a previous ensure call)
+            version = self._installed.get(tool, "")
+        if not version:
+            raise ValueError(
+                f"No version or spec for '{tool}'. "
+                f"Declare it in the skill's config.yaml."
+            )
 
         install_dir = self.root / tool / version
 
@@ -169,12 +138,18 @@ class Toolchain:
             self._installed[tool] = version
             return install_dir
 
-        manifest = self._get_manifest(tool, version)
+        resolved_spec = spec or self._specs.get(tool, {})
+        if not resolved_spec:
+            raise ValueError(
+                f"No spec for '{tool}' v{version}. "
+                f"The skill's config.yaml must include urls and bin paths "
+                f"under environment.toolchain.{tool}."
+            )
 
-        if manifest.get("type") == "git":
-            self._install_git(tool, version, manifest, install_dir)
+        if resolved_spec.get("type") == "git":
+            self._install_git(tool, version, resolved_spec, install_dir)
         else:
-            self._install_archive(tool, version, manifest, install_dir)
+            self._install_archive(tool, version, resolved_spec, install_dir)
 
         self._installed[tool] = version
         print(f"  [toolchain] {tool} {version} ready at {install_dir}")
@@ -182,14 +157,27 @@ class Toolchain:
 
     def bin(self, tool: str, version: str = "") -> str:
         """Return full path to a tool's binary."""
-        version = version or self._installed.get(tool) or DEFAULTS.get(tool, "")
-        install_dir = self.ensure(tool, version)
+        version = version or self._installed.get(tool, "")
+        if not version:
+            raise RuntimeError(f"Tool '{tool}' not installed.")
 
-        manifest = self._get_manifest(tool, version)
-        bin_rel = manifest.get("bin", {}).get(PLATFORM_KEY)
+        install_dir = self.root / tool / version
+        spec = self._specs.get(tool, {})
+        bin_map = spec.get("bin", {})
+        bin_rel = bin_map.get(PLATFORM_KEY)
+
         if not bin_rel:
-            raise RuntimeError(
-                f"No binary defined for {tool} {version} on {PLATFORM_KEY}"
+            # Auto-detect: search for tool name as executable
+            exe = f"{tool}.exe" if IS_WINDOWS else tool
+            candidates = list(install_dir.rglob(exe))
+            if candidates:
+                c = candidates[0]
+                if not IS_WINDOWS:
+                    c.chmod(c.stat().st_mode | 0o755)
+                return str(c)
+            raise FileNotFoundError(
+                f"No binary mapping for {tool} on {PLATFORM_KEY}. "
+                f"Add 'bin.{PLATFORM_KEY}' to config.yaml."
             )
 
         candidates = [
@@ -209,12 +197,14 @@ class Toolchain:
         )
 
     def idd(self, version: str = "") -> str:
-        """Return path to Energy+.idd from the managed EnergyPlus install."""
-        version = version or self._installed.get("energyplus") or DEFAULTS["energyplus"]
-        install_dir = self.ensure("energyplus", version)
+        """Return path to Energy+.idd."""
+        version = version or self._installed.get("energyplus", "")
+        if not version:
+            raise RuntimeError("EnergyPlus not installed.")
 
-        manifest = self._get_manifest("energyplus", version)
-        idd_name = manifest.get("idd", "Energy+.idd")
+        install_dir = self.root / "energyplus" / version
+        spec = self._specs.get("energyplus", {})
+        idd_name = spec.get("idd", "Energy+.idd")
 
         for candidate in install_dir.rglob(idd_name):
             return str(candidate)
@@ -223,57 +213,49 @@ class Toolchain:
 
     def resstock_dir(self, version: str = "") -> Path:
         """Return path to ResStock repo."""
-        version = version or self._installed.get("resstock") or DEFAULTS["resstock"]
-        return self.ensure("resstock", version)
+        version = version or self._installed.get("resstock", "")
+        if not version:
+            raise RuntimeError("ResStock not installed.")
+        return self.root / "resstock" / version
 
     def env(self) -> dict:
         """Return os.environ copy with toolchain bin dirs on PATH."""
         env = os.environ.copy()
         extra_dirs = []
-
         for tool in ("energyplus", "openstudio"):
-            version = self._installed.get(tool)
-            if version:
+            if tool in self._installed:
                 try:
-                    bin_path = self.bin(tool, version)
-                    extra_dirs.append(str(Path(bin_path).parent))
+                    extra_dirs.append(str(Path(self.bin(tool)).parent))
                 except (FileNotFoundError, RuntimeError):
                     pass
-
         if extra_dirs:
             existing = env.get("PATH", "")
             env["PATH"] = PATH_SEP.join(extra_dirs + [existing])
-
         return env
 
     def info(self) -> ToolchainInfo:
         """Return a snapshot of all resolved paths."""
         result = ToolchainInfo(versions=dict(self._installed))
         result.weather_dir = str(WEATHER_DIR)
-
         for tool in ("energyplus", "openstudio"):
             if tool in self._installed:
                 try:
-                    bin_path = self.bin(tool)
-                    setattr(result, f"{tool}_bin", bin_path)
-                    setattr(result, f"{tool}_dir", str(Path(bin_path).parent))
+                    bp = self.bin(tool)
+                    setattr(result, f"{tool}_bin", bp)
+                    setattr(result, f"{tool}_dir", str(Path(bp).parent))
                 except (FileNotFoundError, RuntimeError):
                     pass
-
         if "energyplus" in self._installed:
             try:
                 result.idd_path = self.idd()
             except FileNotFoundError:
                 pass
-
         if "resstock" in self._installed:
             result.resstock_dir = str(self.resstock_dir())
-
         return result
 
     @staticmethod
     def docker_available() -> bool:
-        """Check if Docker daemon is running (optional)."""
         try:
             r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
             return r.returncode == 0
@@ -282,7 +264,6 @@ class Toolchain:
 
     @staticmethod
     def ensure_weather_dir() -> Path:
-        """Create shared weather cache directory."""
         WEATHER_DIR.mkdir(parents=True, exist_ok=True)
         return WEATHER_DIR
 
@@ -308,42 +289,29 @@ class Toolchain:
         except StopIteration:
             return False
 
-    def _get_manifest(self, tool: str, version: str) -> dict:
-        tool_versions = TOOL_MANIFEST.get(tool)
-        if not tool_versions:
-            raise ValueError(f"Unknown tool '{tool}'. Available: {list(TOOL_MANIFEST)}")
-        entry = tool_versions.get(version)
-        if not entry:
-            raise ValueError(
-                f"Unknown version '{version}' for {tool}. "
-                f"Available: {list(tool_versions)}"
-            )
-        return entry
-
-    def _install_archive(self, tool: str, version: str, manifest: dict,
-                         install_dir: Path):
-        url = manifest["urls"].get(PLATFORM_KEY)
+    def _install_archive(self, tool, version, spec, install_dir):
+        urls = spec.get("urls", {})
+        url = urls.get(PLATFORM_KEY)
         if not url:
             raise RuntimeError(
-                f"No download for {tool} {version} on {PLATFORM_KEY}. "
-                f"Available: {list(manifest['urls'])}"
+                f"No download URL for {tool} {version} on {PLATFORM_KEY}.\n"
+                f"Available platforms: {list(urls)}\n"
+                f"Add '{PLATFORM_KEY}' to environment.toolchain.{tool}.urls "
+                f"in the skill's config.yaml."
             )
-
         print(f"  [toolchain] Downloading {tool} {version} for {PLATFORM_KEY}...")
         archive_path = self._download(url)
-
         print(f"  [toolchain] Extracting to {install_dir}...")
         install_dir.mkdir(parents=True, exist_ok=True)
         self._extract(archive_path, install_dir)
 
-    def _install_git(self, tool: str, version: str, manifest: dict,
-                     install_dir: Path):
-        repo_url = manifest["repo"]
-        tag = manifest["tag"]
-
+    def _install_git(self, tool, version, spec, install_dir):
+        repo_url = spec.get("repo")
+        tag = spec.get("tag", version)
+        if not repo_url:
+            raise ValueError(f"Git tool '{tool}' needs 'repo' in config.yaml.")
         print(f"  [toolchain] Cloning {tool} {tag}...")
         install_dir.mkdir(parents=True, exist_ok=True)
-
         subprocess.run(
             ["git", "clone", "--depth", "1", "--branch", tag,
              repo_url, str(install_dir)],
@@ -353,11 +321,9 @@ class Toolchain:
     def _download(self, url: str) -> Path:
         filename = url.rsplit("/", 1)[-1]
         cache_path = DOWNLOAD_CACHE / filename
-
         if cache_path.exists() and cache_path.stat().st_size > 0:
             print(f"  [toolchain] Using cached {filename}")
             return cache_path
-
         for cmd in [
             ["wget", "-q", "--show-progress", "-O", str(cache_path), url],
             ["curl", "-fSL", "-o", str(cache_path), url],
@@ -369,7 +335,6 @@ class Toolchain:
             except (FileNotFoundError, subprocess.CalledProcessError,
                     subprocess.TimeoutExpired):
                 continue
-
         try:
             import requests
             resp = requests.get(url, stream=True, timeout=600)
@@ -388,16 +353,13 @@ class Toolchain:
     @staticmethod
     def _extract(archive_path: Path, dest: Path):
         name = archive_path.name.lower()
-
         if name.endswith(".tar.gz") or name.endswith(".tgz"):
             with tarfile.open(archive_path, "r:gz") as tar:
                 tar.extractall(dest, filter="data")
-
         elif name.endswith(".zip"):
             with zipfile.ZipFile(archive_path) as zf:
                 zf.extractall(dest)
-
-        elif name.endswith(".sh"):
+        elif name.endswith(".sh") or name.endswith(".run"):
             subprocess.run(
                 ["bash", str(archive_path),
                  f"--prefix={dest}", "--skip-license"],

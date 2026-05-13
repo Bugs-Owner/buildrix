@@ -115,14 +115,10 @@ def uninstall_skill(name: str):
 def provision_toolchain(skill_dir: Path) -> list[str]:
     """
     Read a skill's config.yaml and download any declared toolchain
-    dependencies. Returns list of tools provisioned.
+    dependencies. Supports both full specs (with URLs) and simple
+    version strings.
 
-    config.yaml format:
-        environment:
-          toolchain:
-            energyplus: "24.1.0"
-            openstudio: "3.9.0"
-            resstock: "v3.3.0"
+    Returns list of tools provisioned.
     """
     config_path = skill_dir / "config.yaml"
     if not config_path.exists():
@@ -131,24 +127,30 @@ def provision_toolchain(skill_dir: Path) -> list[str]:
     with open(config_path) as f:
         config = yaml.safe_load(f) or {}
 
-    toolchain_spec = config.get("environment", {}).get("toolchain", {})
-    if not toolchain_spec:
+    toolchain_section = config.get("environment", {}).get("toolchain", {})
+    if not toolchain_section:
         return []
 
-    # Import here to avoid circular imports and so skills without
-    # toolchain needs don't pay the import cost
     from buildrix.env.toolchain import Toolchain
 
-    print(f"  Provisioning toolchain: {toolchain_spec}")
     tc = Toolchain()
     provisioned = []
 
-    for tool, version in toolchain_spec.items():
+    for tool_name, spec in toolchain_section.items():
         try:
-            tc.ensure(tool, str(version))
-            provisioned.append(f"{tool}=={version}")
+            if isinstance(spec, dict):
+                # Full spec with URLs — the correct way
+                version = spec.get("version", "unknown")
+                print(f"  Provisioning {tool_name} {version}...")
+                tc.ensure(tool_name, spec=spec)
+                provisioned.append(f"{tool_name}=={version}")
+            elif isinstance(spec, str):
+                # Bare version string (legacy)
+                print(f"  Provisioning {tool_name} {spec}...")
+                tc.ensure(tool_name, version=spec)
+                provisioned.append(f"{tool_name}=={spec}")
         except Exception as e:
-            print(f"  ⚠️  Failed to provision {tool} {version}: {e}")
+            print(f"  ⚠️  Failed to provision {tool_name}: {e}")
 
     if provisioned:
         print(f"  ✅ Toolchain ready: {', '.join(provisioned)}")
