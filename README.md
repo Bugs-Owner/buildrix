@@ -4,6 +4,10 @@
 
 Build, share, and benchmark reusable AI skills for architecture, engineering, and construction (AEC) workflows. Skills work with Claude Code, OpenAI Codex, Gemini CLI, and any tool supporting the [Agent Skills](https://agentskills.io) open standard.
 
+
+<img width="2538" height="1508" alt="overall_demo_fast" src="https://github.com/user-attachments/assets/6d0594c6-10a1-46b9-bacb-14e958c406e3" />
+
+
 Community hub: **[buildrixhub.onrender.com](https://buildrixhub.onrender.com/)** — browse skills, test cases, challenges, and leaderboard.
 
 ---
