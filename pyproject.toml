@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "buildrix"
+version = "0.2.0"
+description = "Open skill framework for building science AI agents"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+
+dependencies = [
+    "requests>=2.31",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+buildrix = "buildrix.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["buildrix"]
+artifacts = ["templates/**/*", "examples/**/*"]

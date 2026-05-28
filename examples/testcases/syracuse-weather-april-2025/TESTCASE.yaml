@@ -1,0 +1,43 @@
+# Buildrix Test Case: Syracuse April 2025 Weather Extraction
+# A simple test case for the weather-data-extraction skill.
+
+name: "syracuse-weather-april-2025"
+description: "Extract hourly weather data for Syracuse NY, April 2025, all default variables."
+
+category: "data-extraction"
+domain: "energy"
+difficulty: "easy"
+tags: [weather, solar, climate, new-york]
+
+target_skills:
+  - weather-data-extraction
+
+environment:
+  python: ">=3.11"
+  packages:
+    - requests
+    - pandas
+    - matplotlib
+
+task:
+  prompt: |
+    Extract hourly weather data for Syracuse, New York for the full month
+    of April 2025. Use all default building-science weather variables.
+    Save the data as a CSV file and generate a summary with statistics.
+  input_files: []
+
+outputs:
+  - path: "expected_outputs/weather_data.csv"
+    description: "Hourly weather data with 11 variables, 720 rows (30 days × 24 hours)"
+    verification: "structural"
+    required_columns:
+      - "Temperature [°C]"
+      - "Relative Humidity [%]"
+      - "GHI [W/m²]"
+      - "Wind Speed [m/s]"
+    min_rows: 700      # ~720 expected, allow small margin
+    max_rows: 745
+
+  - path: "expected_outputs/weather_summary.md"
+    description: "Markdown summary with location info and variable statistics"
+    verification: "exists"

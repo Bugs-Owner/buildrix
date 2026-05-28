@@ -1,0 +1,153 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  Buildrix Test Case — schema v2.0
+# ────────────────────────────────────────────────────────────────────────────
+#  A test case defines:
+#    (1) a task,
+#    (2) the inputs the agent receives,
+#    (3) the reproducible environment to run it in,
+#    (4) a human-expert reference output (the "gold"),
+#    (5) a rubric for scoring an agent's attempt against the gold.
+#
+#  Format inspired by SWE-bench, HumanEval, MLPerf, and HELM.
+#  Vague language is the enemy. Every field below should be unambiguous to
+#  another engineer reading this file cold.
+# ════════════════════════════════════════════════════════════════════════════
+
+schema_version: "2.0"
+
+# ── 1. Identity ─────────────────────────────────────────────────────────────
+id:          "syracuse-weather-april-2025"   # globally unique, kebab-case
+name:        "Syracuse April 2025 Weather Extraction"
+version:     "1.0.0"                         # bump on any task-definition change
+license:     "CC-BY-4.0"
+created_at:  "2026-05-27"
+author:
+  name:        "Jane Doe"
+  affiliation: "Syracuse University"
+  contact:     "jane@example.edu"            # kept private by the hub
+
+# ── 2. Categorization ───────────────────────────────────────────────────────
+domain:     "weather-climate"                # must match a hub domain category
+tags:       [weather, solar, climate, new-york]
+difficulty: "easy"                           # easy | medium | hard | expert
+estimated_time_human_minutes: 18             # how long a domain expert takes
+
+# ── 3. Task definition ──────────────────────────────────────────────────────
+task:
+  # The EXACT prompt the agent receives — VERBATIM, no paraphrasing.
+  # This is the only natural-language instruction the system passes through.
+  prompt: |
+    Extract hourly weather data for Syracuse, New York (43.0481° N, 76.1474° W)
+    for the full month of April 2025. Include at minimum: dry-bulb temperature
+    (°C), relative humidity (%), global horizontal irradiance (W/m²), and wind
+    speed (m/s). Save the hourly data to a CSV named `weather_data.csv` and
+    write a brief Markdown summary at `weather_summary.md` containing the
+    monthly min / max / mean for each variable plus the date and value of the
+    daily peak GHI.
+
+  # Required deliverables — explicit filenames, no ambiguity.
+  deliverables:
+    - path:        "weather_data.csv"
+      description: "Hourly weather, 720±24 rows, columns documented in summary"
+      required:    true
+    - path:        "weather_summary.md"
+      description: "Plain-text monthly statistics summary"
+      required:    true
+
+# ── 4. What the agent receives as input ─────────────────────────────────────
+inputs:
+  # Files placed in inputs/ that the agent can read (zipped on upload).
+  files: []                                  # this task has no input files
+
+  # External data sources the agent is expected to use.
+  data_sources:
+    - name:          "Open-Meteo Archive API"
+      url:           "https://archive-api.open-meteo.com/v1/archive"
+      auth_required: false
+      free_tier:     true
+      notes:         "No API key required. Free tier ~10k requests/day."
+
+# ── 5. Reproducible environment ─────────────────────────────────────────────
+environment:
+  os:     "any"                              # any | linux | macos | windows
+  python: ">=3.11,<3.13"
+  packages:
+    - "requests==2.32.3"
+    - "pandas==2.2.2"
+    - "matplotlib==3.9.0"
+  tools: []                                  # external binaries with pinned versions
+  # Example for an EnergyPlus task:
+  # tools:
+  #   - name:        "energyplus"
+  #     version:     "24.1.0"
+  #     install_via: "buildrix env setup"
+
+# ── 6. Reference (the human-expert gold standard) ───────────────────────────
+reference:
+  # Files in expected_outputs/ that the human expert produced.
+  files:
+    - path: "expected_outputs/weather_data.csv"
+      role: "primary"
+    - path: "expected_outputs/weather_summary.md"
+      role: "primary"
+
+  methodology: |
+    Hourly archive endpoint queried at 2025-05-02 with variables
+    temperature_2m, relative_humidity_2m, shortwave_radiation, wind_speed_10m.
+    Output spot-checked against NSRDB for 2025-04-15 — agreement within 4%.
+
+  expert:
+    role:                "Building energy modeler, 8 yrs experience"
+    time_spent_minutes:  18
+    confidence:          "high"              # low | medium | high
+
+# ── 7. Rubric — how an agent's attempt is scored against the gold ───────────
+rubric:
+  # Each criterion is graded 0..1 and weight-summed for the overall score.
+  pass_threshold: 0.75                       # min overall score to be "passing"
+  criteria:
+
+    - id:           "csv_exists"
+      description:  "weather_data.csv was produced"
+      weight:       0.10
+      verification: "file_exists"
+      args:
+        path: "weather_data.csv"
+
+    - id:           "csv_structure"
+      description:  "CSV has the required columns and a plausible row count"
+      weight:       0.30
+      verification: "csv_structural"
+      args:
+        path:             "weather_data.csv"
+        required_columns: ["Temperature [°C]", "Relative Humidity [%]",
+                           "GHI [W/m²]", "Wind Speed [m/s]"]
+        min_rows:         700
+        max_rows:         745
+
+    - id:           "csv_values_close"
+      description:  "Numeric values within tolerance of human reference"
+      weight:       0.40
+      verification: "numeric_compare"
+      args:
+        path:               "weather_data.csv"
+        reference:          "expected_outputs/weather_data.csv"
+        columns:            ["Temperature [°C]", "GHI [W/m²]"]
+        relative_tolerance: 0.05             # 5% per-cell, mean over column
+
+    - id:           "summary_quality"
+      description:  "Markdown summary is well-formed and complete"
+      weight:       0.20
+      verification: "llm_judge"
+      args:
+        path: "weather_summary.md"
+        rubric_prompt: |
+          Does the summary include all of: (a) location confirmation,
+          (b) date range, (c) per-variable min/max/mean, (d) units shown,
+          (e) date and value of peak GHI? Score 0–1 in 0.2 increments.
+
+# ── 8. Review pipeline (managed by the hub — do not edit manually) ──────────
+review:
+  status: "draft"
+  # status progression: draft → llm_reviewed → human_verified → golden
+  #                                                          ↘ rejected

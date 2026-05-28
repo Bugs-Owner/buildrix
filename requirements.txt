@@ -1,0 +1,9 @@
+# Core dependencies for Buildrix
+requests>=2.31
+pandas>=2.0
+matplotlib>=3.7
+pyyaml>=6.0
+numpy>=1.24
+
+# For timeseries-forecast skill (install separately if needed)
+# torch>=2.0
