@@ -73,13 +73,20 @@ class HubClient:
 
     # ── Skills ────────────────────────────────────────────────────────────
 
-    def list_skills(self, domain: str = "", search: str = "") -> list[dict]:
-        """List skills from the hub."""
+    def list_skills(self, domain: str = "", search: str = "",
+                    sort_by: str = "") -> list[dict]:
+        """List skills from the hub.
+
+        `sort_by` accepts the hub's sort keys: newest, oldest, most_liked,
+        most_downloaded, most_saved. When empty, the hub defaults to newest.
+        """
         params = {}
         if domain:
             params["domain"] = domain
         if search:
             params["search"] = search
+        if sort_by:
+            params["sort_by"] = sort_by
         resp = requests.get(
             self._url("/skills/"),
             params=params,

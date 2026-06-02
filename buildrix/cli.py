@@ -12,6 +12,8 @@ Usage:
 
     buildrix install <name> [name2 ...] Download & install skill(s) from the hub
     buildrix pull <name> [name2 ...]    Download skill archive(s) without installing
+    buildrix pull --all                 Download every skill on the hub
+    buildrix pull --mine                Download every skill you authored
     buildrix update [name ...] [--all]  Re-fetch installed skill(s) at latest version
     buildrix dev <skill-dir>            Install a local skill for development
     buildrix uninstall <name> [...]     Remove installed skill(s)
@@ -81,7 +83,13 @@ def main():
         "pull",
         help="Download skill archive(s) from the hub without installing them",
     )
-    p_pull.add_argument("names", nargs="+", help="Skill name(s) to download")
+    p_pull.add_argument("names", nargs="*", help="Skill name(s) to download")
+    p_pull.add_argument("--all", action="store_true", dest="pull_all",
+                        help="Download every skill on the hub")
+    p_pull.add_argument("--mine", action="store_true",
+                        help="Download every skill you authored (requires login)")
+    p_pull.add_argument("--domain", default="",
+                        help="With --all/--mine, restrict to a single domain")
     p_pull.add_argument("--dir", default=".", help="Destination directory (default: cwd)")
     p_pull.add_argument("--extract", action="store_true",
                         help="Extract the archive instead of keeping it zipped")
@@ -305,35 +313,76 @@ def cmd_pull(args):
     Use this when you want to inspect or vendor a skill rather than make it
     visible to Claude Code. For the "install + link to ~/.claude/skills"
     behavior, use `buildrix install` instead.
+
+    Targets can be given three ways:
+      • explicit names:  buildrix pull skill-a skill-b
+      • everything:      buildrix pull --all
+      • your own skills: buildrix pull --mine
     """
+    from buildrix.config import get_token, get_user
     from buildrix.hub_client import HubClient
 
     client = HubClient()
     dest_root = Path(args.dir).expanduser().resolve()
     dest_root.mkdir(parents=True, exist_ok=True)
 
+    # ── Resolve the list of skills to download ──
+    if args.pull_all or args.mine:
+        if args.names:
+            print("⚠️  Ignoring explicit names because --all/--mine was given.")
+
+        # Pull a generous page so we get everything, not just the default 50.
+        skills = client.list_skills(domain=args.domain, sort_by="newest")
+
+        if args.mine:
+            user = get_user()
+            if not user:
+                print("❌ Not logged in. Run: buildrix login")
+                return
+            my_name = user.get("name", "")
+            skills = [s for s in skills if s.get("author_name") == my_name]
+
+        if not skills:
+            scope = "you authored" if args.mine else "on the hub"
+            extra = f" in domain '{args.domain}'" if args.domain else ""
+            print(f"  No skills {scope}{extra}.")
+            return
+
+        targets = [(s["name"], s["id"]) for s in skills]
+        print(f"  Downloading {len(targets)} skill(s) → {dest_root}\n")
+    else:
+        if not args.names:
+            print("❌ Nothing to pull. Pass skill name(s), or use --all / --mine.")
+            return
+        # Resolve names → ids up front so errors are clear.
+        targets = []
+        for name in args.names:
+            skill = client.get_skill_by_name(name)
+            if not skill:
+                print(f"❌ '{name}' not found on the hub.")
+                continue
+            targets.append((skill["name"], skill["id"]))
+        if not targets:
+            return
+
+    # ── Download loop (shared by all modes) ──
     ok, fail = 0, 0
-    for name in args.names:
-        skill = client.get_skill_by_name(name)
-        if not skill:
-            print(f"❌ '{name}' not found on the hub.")
-            fail += 1
-            continue
+    for name, skill_id in targets:
         try:
             if args.extract:
                 target = dest_root / name
-                client.download_skill(skill["id"], target)
+                client.download_skill(skill_id, target)
                 print(f"✅ '{name}' downloaded and extracted → {target}")
             else:
                 target = dest_root / f"{name}.zip"
-                client.download_skill_archive(skill["id"], target)
+                client.download_skill_archive(skill_id, target)
                 print(f"✅ '{name}' downloaded → {target}")
             ok += 1
         except Exception as e:
             print(f"❌ '{name}' failed: {e}")
             fail += 1
 
-    if len(args.names) > 1:
+    if len(targets) > 1:
         print(f"\n  Summary: {ok} pulled, {fail} failed")
 
 
