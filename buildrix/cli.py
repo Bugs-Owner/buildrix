@@ -11,6 +11,8 @@ Usage:
     buildrix new testcase <name>        Scaffold a new test case from template
 
     buildrix install <name> [name2 ...] Download & install skill(s) from the hub
+    buildrix install --all              Install every skill on the hub
+    buildrix install --mine             Install every skill you authored
     buildrix pull <name> [name2 ...]    Download skill archive(s) without installing
     buildrix pull --all                 Download every skill on the hub
     buildrix pull --mine                Download every skill you authored
@@ -76,7 +78,13 @@ def main():
 
     # ── install ──
     p_install = sub.add_parser("install", help="Install skill(s) from the hub")
-    p_install.add_argument("names", nargs="+", help="Skill name(s) to install")
+    p_install.add_argument("names", nargs="*", help="Skill name(s) to install")
+    p_install.add_argument("--all", action="store_true", dest="install_all",
+                           help="Install every skill on the hub")
+    p_install.add_argument("--mine", action="store_true",
+                           help="Install every skill you authored (requires login)")
+    p_install.add_argument("--domain", default="",
+                           help="With --all/--mine, restrict to a single domain")
 
     # ── pull ──  (fetch from hub, no install / no Claude Code linking)
     p_pull = sub.add_parser(
@@ -292,8 +300,41 @@ def cmd_new(args):
 def cmd_install(args):
     from buildrix.skill_manager import install_skill
 
+    # Resolve which skill names to install.
+    if args.install_all or args.mine:
+        from buildrix.config import get_user
+        from buildrix.hub_client import HubClient
+
+        if args.names:
+            print("⚠️  Ignoring explicit names because --all/--mine was given.")
+
+        client = HubClient()
+        skills = client.list_skills(domain=args.domain, sort_by="newest")
+
+        if args.mine:
+            user = get_user()
+            if not user:
+                print("❌ Not logged in. Run: buildrix login")
+                return
+            my_name = user.get("name", "")
+            skills = [s for s in skills if s.get("author_name") == my_name]
+
+        if not skills:
+            scope = "you authored" if args.mine else "on the hub"
+            extra = f" in domain '{args.domain}'" if args.domain else ""
+            print(f"  No skills {scope}{extra}.")
+            return
+
+        names = [s["name"] for s in skills]
+        print(f"  Installing {len(names)} skill(s)...\n")
+    else:
+        if not args.names:
+            print("❌ Nothing to install. Pass skill name(s), or use --all / --mine.")
+            return
+        names = args.names
+
     ok, fail = [], []
-    for name in args.names:
+    for name in names:
         try:
             install_skill(name)
             ok.append(name)
@@ -302,7 +343,7 @@ def cmd_install(args):
             fail.append(name)
             print(f"❌ '{name}' failed: {e}")
 
-    if len(args.names) > 1:
+    if len(names) > 1:
         print(f"\n  Summary: {len(ok)} installed, {len(fail)} failed")
 
 
