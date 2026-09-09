@@ -13,28 +13,11 @@ DEFAULT_HUB_URL = "http://localhost:8000"
 # Claude Code integration
 CLAUDE_SKILLS_DIR = Path.home() / ".claude" / "skills"
 
-# ─── Canonical domain list ──────────────────────────────────────────────────
-# MUST match the DOMAINS array in static/index.html on the hub frontend.
-# When you change this list, change both — they're the canonical taxonomy
-# documented in the Buildrix paper (Section 3, "Skill Categories").
-VALID_DOMAINS = [
-    "general",                # 1. cross-cutting helpers
-    "weather-climate",        # 2. TMY, EPW, climate analysis
-    "energy-modeling",        # 3. EnergyPlus, OpenStudio, eQUEST
-    "hvac-mechanical",        # 4. sizing, sequences, equipment
-    "controls-optimization",  # 5. MPC, RL, supervisory control
-    "thermal-comfort-ieq",    # 6. PMV/PPD, adaptive, IAQ, ventilation
-    "lighting-daylighting",   # 7. Radiance, daylight autonomy
-    "envelope",               # 8. U-values, thermal bridges, WWR
-    "semantic-modeling",      # 9. Brick, Haystack, RealEstateCore
-    "bim-geometry",           # 10. IFC, Revit, geometry extraction
-    "sensor-operations",      # 11. BAS data, FDD, KPI dashboards
-    "grid-demand-response",   # 12. tariffs, DR, flexibility
-    "embodied-carbon-lca",    # 13. EPDs, material LCA
-    "code-compliance",        # 14. ASHRAE 90.1, 55, 62.1, IECC
-    "structural",             # 15. loads, sizing, drawings
-    "cost-construction",      # 16. estimating, scheduling, takeoff
-]
+# --- Canonical domain list ---------------------------------------------------
+# The list itself lives in buildrix/domains.py, and the hub serves the same one
+# at GET /api/domains. Re-exported here for the older call sites.
+from buildrix.domains import SKILL_DOMAINS as VALID_DOMAINS  # noqa: E402,F401
+from buildrix.domains import TASK_DOMAINS  # noqa: E402,F401
 
 
 def ensure_dirs():

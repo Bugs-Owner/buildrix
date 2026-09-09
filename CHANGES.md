@@ -1,3 +1,71 @@
+# Changes
+
+## 0.3.0 - September 2026
+
+The v2 formats, and one command shape for everything.
+
+### Commands
+
+`buildrix <noun> <verb>`, with the verbs meaning the same thing for both nouns:
+
+```
+buildrix skill  new | check | submit | status | install | list | remove | ...
+buildrix task   new | check | submit | status | get | list
+buildrix bench  run | submit | status | list        (stub in this release)
+buildrix auth   login | logout | whoami | register
+```
+
+`check` is local and runs exactly the code the hub runs; `submit` and `status`
+are the only commands that need the network. Every flat command from 0.2
+(`login`, `install`, `push`, `browse`, ...) still works and prints a one-line
+note pointing at the new form.
+
+### Formats
+
+- **`skill/2.0`** — a valid Agent Skill first: everything Buildrix needs lives
+  under the frontmatter's `metadata:` block, and no top-level keys are invented.
+  Seven required sections. `config.yaml` is gone, because two files holding the
+  same metadata always drift.
+- **`task/2.0`** — what 0.2 called a test case. Public half (TASK.yaml,
+  prompt.md, inputs/, env/, collect.py) and private half (grader/, reference/,
+  mutations/). Every check carries a phrase copied from the prompt, word for
+  word, and the checker verifies it is really there.
+- **Difficulty is gone as a field.** It is the measured no-skill pass rate,
+  written back by the server with its confidence interval and trial count.
+
+### New modules
+
+| Module | What it does |
+|---|---|
+| `buildrix/domains.py` | The eight domains, in one place. Legacy ids map forward. |
+| `buildrix/spec.py` | Every limit the checkers enforce, as a named constant. |
+| `buildrix/report.py` | One report format for local checks and server reviews. |
+| `buildrix/checks/skill.py` | The eight skill rules, including a determinism double-run and a scan for task answers. |
+| `buildrix/checks/task.py` | The gates, including G3 gold = 1.00, G4 empty = 0.00, G5 every wrong-but-plausible case fails, G6 repeatable. |
+
+### Hub client
+
+`submit_skill`, `skill_review`, `submit_task`, `task_review`, `list_tasks` and
+`domains`. Task calls try `/api/tasks` and fall back to `/api/testcases`, so the
+CLI works either side of the server rewrite. Reviews are normalised from both
+the new `review` payload and the old `llm_review_*` columns.
+
+### Templates
+
+`templates/skill/` and `templates/task/` are complete and runnable: a working
+`scripts/main.py` with tests that pass a fresh `skill check`, and a task with a
+grader that documents its own contract. `templates/testcase/` is removed.
+
+### Other
+
+- Domain list reduced from 16 to the eight benchmark domains plus `general`.
+  `buildrix.config.VALID_DOMAINS` now re-exports it.
+- CLI output is ASCII-only, so it renders on a stock Windows console.
+
+---
+
+<details><summary>Earlier notes (May 2026)</summary>
+
 # Buildrix Updates — May 2026
 
 This bundle covers four changes you asked for. Files in this directory are
@@ -122,3 +190,5 @@ explain in the paper too:
 Hold a sanity check between each step — every change is independent of the
 others except (3 ↔ 4 ↔ 6) which together implement the new test-case
 pipeline.
+
+</details>

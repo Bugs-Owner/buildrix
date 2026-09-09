@@ -1,0 +1,2 @@
+# Pinned dependencies for this skill. Keep it minimal — the benchmark installs
+# exactly these, in a fresh environment, for every trial.

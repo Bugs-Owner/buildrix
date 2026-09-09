@@ -28,7 +28,7 @@ class HubClient:
     def _url(self, path: str) -> str:
         return f"{self.hub_url}/api{path}"
 
-    # ── Auth ──────────────────────────────────────────────────────────────
+    # -- Auth --------------------------------------------------------------
 
     def login(self, email: str, password: str) -> dict:
         """Login and return token + user info."""
@@ -71,7 +71,7 @@ class HubClient:
         resp.raise_for_status()
         return resp.json()
 
-    # ── Skills ────────────────────────────────────────────────────────────
+    # -- Skills ------------------------------------------------------------
 
     def list_skills(self, domain: str = "", search: str = "",
                     sort_by: str = "") -> list[dict]:
@@ -226,7 +226,7 @@ class HubClient:
         """
         Download the raw skill archive (zipped) to a file path WITHOUT
         unpacking. Used by `buildrix pull` when the user wants the archive
-        only — no extraction, no install side-effects.
+        only - no extraction, no install side-effects.
         """
         resp = requests.get(
             self._url(f"/skills/{skill_id}/download"),
@@ -239,7 +239,7 @@ class HubClient:
         dest_path.write_bytes(resp.content)
         return dest_path
 
-    # ── Test Cases ────────────────────────────────────────────────────────
+    # -- Test Cases --------------------------------------------------------
 
     def list_testcases(self, domain: str = "") -> list[dict]:
         params = {}
@@ -290,7 +290,143 @@ class HubClient:
         resp.raise_for_status()
         return resp.json()
 
-    # ── Challenges ────────────────────────────────────────────────────────
+    # -- Tasks -------------------------------------------------------------
+    #
+    # The hub is moving from /testcases to /tasks with the task/2.0 schema.
+    # Until that lands everywhere, each call tries the new path and falls back.
+
+    def submit_task(self, task_dir: Path) -> dict:
+        """Upload a task/2.0 folder and return the hub's review.
+
+        The public half (TASK.yaml, prompt.md, inputs/, env/, collect.py) and the
+        private half (grader/) are uploaded separately, so the server can serve
+        one and withhold the other.
+        """
+        import yaml
+
+        task_dir = Path(task_dir)
+        ty = task_dir / "TASK.yaml"
+        if not ty.exists():
+            raise FileNotFoundError(f"No TASK.yaml in {task_dir}")
+
+        doc = yaml.safe_load(ty.read_text(encoding="utf-8")) or {}
+        ident = doc.get("identity") or {}
+        tax = doc.get("taxonomy") or {}
+        prompt_file = str((doc.get("task") or {}).get("prompt_file") or "prompt.md")
+        prompt_path = task_dir / prompt_file
+        prompt = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else ""
+
+        public = _zip_paths(task_dir, [
+            "TASK.yaml", prompt_file, "collect.py", "provenance.md", "inputs", "env",
+        ])
+        private = _zip_paths(task_dir, ["grader"])
+
+        data = {
+            "schema": str(doc.get("schema") or "task/2.0"),
+            "slug": str(ident.get("id") or task_dir.name),
+            "name": str(ident.get("title") or task_dir.name),
+            "version": str(ident.get("version") or "1.0.0"),
+            "license_str": str(ident.get("license") or "CC-BY-4.0"),
+            "domain": str(tax.get("domain") or ""),
+            "tags": ",".join(str(t) for t in (tax.get("tags") or [])),
+            "human_minutes": str(tax.get("human_minutes") or 0),
+            "instructions": prompt,
+            "task_yaml_text": ty.read_text(encoding="utf-8"),
+        }
+        files = {
+            "public_bundle": ("public.zip", public, "application/zip"),
+            "grader_bundle": ("grader.zip", private, "application/zip"),
+        }
+        row = self._post_first(["/tasks/", "/testcases/"], data=data, files=files)
+        return review_from_row(row)
+
+    def task_review(self, ident: str) -> dict:
+        """Fetch the current review for a task, by slug or id."""
+        row = self._get_first([
+            f"/tasks/by-slug/{ident}", f"/tasks/{ident}",
+            f"/testcases/by-slug/{ident}", f"/testcases/{ident}",
+        ])
+        return review_from_row(row)
+
+    def list_tasks(self, domain: str = "", search: str = "",
+                   sort_by: str = "") -> list[dict]:
+        params = {k: v for k, v in
+                  (("domain", domain), ("search", search), ("sort_by", sort_by)) if v}
+        rows = self._get_first(["/tasks/", "/testcases/"], params=params)
+        return rows if isinstance(rows, list) else rows.get("items", [])
+
+    # -- Reviews -----------------------------------------------------------
+
+    def submit_skill(self, skill_dir: Path) -> dict:
+        """Upload a skill and return the hub's review of it.
+
+        Same endpoint as ``push_skill``; this wrapper exists because the CLI
+        cares about the review, not the row.
+        """
+        return review_from_row(self.push_skill(skill_dir))
+
+    def skill_review(self, name: str) -> dict:
+        """Fetch the current review for a skill, by name."""
+        row = self._get_first([f"/skills/by-name/{name}", f"/skills/{name}"])
+        return review_from_row(row)
+
+    # -- Domains -----------------------------------------------------------
+
+    def domains(self, kind: str = "skill") -> list[str]:
+        """The hub's domain list, falling back to the packaged one offline."""
+        try:
+            data = self._get_first(["/domains", "/domains/"], params={"kind": kind})
+            if isinstance(data, list):
+                return [d if isinstance(d, str) else d.get("id", "") for d in data]
+            if isinstance(data, dict) and data.get("domains"):
+                return [d if isinstance(d, str) else d.get("id", "") for d in data["domains"]]
+        except Exception:
+            pass
+        from buildrix import domains as _d
+        return _d.TASK_DOMAINS if kind == "task" else _d.SKILL_DOMAINS
+
+    # -- Request helpers ---------------------------------------------------
+
+    def _get_first(self, paths: list[str], params: dict | None = None):
+        """GET the first path that is not a 404. Raises the last error."""
+        last: Exception | None = None
+        for path in paths:
+            try:
+                resp = requests.get(self._url(path), params=params or {},
+                                    headers=self._headers, timeout=20)
+                if resp.status_code == 404:
+                    last = requests.HTTPError(f"404 {path}")
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException as e:
+                last = e
+        raise last or requests.HTTPError("no endpoint responded")
+
+    def _post_first(self, paths: list[str], data: dict, files: dict):
+        """POST to the first path that is not a 404. Raises the last error."""
+        last: Exception | None = None
+        for path in paths:
+            for buf in files.values():
+                try:
+                    buf.seek(0)
+                except Exception:
+                    pass
+            try:
+                resp = requests.post(self._url(path), headers=self._headers,
+                                     data=data, files=files, timeout=120)
+                if resp.status_code == 404:
+                    last = requests.HTTPError(f"404 {path}")
+                    continue
+                if resp.status_code >= 400:
+                    raise requests.HTTPError(
+                        f"{resp.status_code} {path}: {resp.text[:300]}")
+                return resp.json()
+            except requests.RequestException as e:
+                last = e
+        raise last or requests.HTTPError("no endpoint responded")
+
+    # -- Challenges --------------------------------------------------------
 
     def list_challenges(self, domain: str = "") -> list[dict]:
         params = {}
@@ -305,7 +441,7 @@ class HubClient:
         resp.raise_for_status()
         return resp.json()
 
-    # ── Stats ─────────────────────────────────────────────────────────────
+    # -- Stats -------------------------------------------------------------
 
     def stats(self) -> dict:
         resp = requests.get(self._url("/stats"), timeout=10)
@@ -318,7 +454,7 @@ class HubClient:
         return resp.json()
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────
+# -- Helpers ---------------------------------------------------------------
 
 def _parse_frontmatter(text: str) -> dict:
     """Parse YAML frontmatter from a SKILL.md file."""
@@ -358,6 +494,60 @@ def _zip_subdir(directory: Path) -> io.BytesIO:
                     zf.write(f, f.relative_to(directory))
         else:
             # Write an empty placeholder
+            zf.writestr("_empty", "")
+    buf.seek(0)
+    return buf
+
+
+def review_from_row(row: dict) -> dict:
+    """Normalise a hub row into the report shape the CLI renders.
+
+    Accepts the new ``review`` payload and the older ``llm_review_*`` columns,
+    so the CLI keeps working across the server rewrite.
+    """
+    if not isinstance(row, dict):
+        return {"verdict": "", "findings": []}
+    if isinstance(row.get("review"), dict):
+        out = dict(row["review"])
+    else:
+        out = {
+            "verdict": row.get("llm_review_status") or row.get("status") or "",
+            "round": row.get("review_round") or 0,
+            "llm_review_checklist": row.get("llm_review_checklist") or {},
+            "rewrite": row.get("suggested_rewrite") or "",
+            "missing": row.get("missing") or [],
+        }
+    out.setdefault("title", row.get("name") or row.get("slug") or "")
+    for key in ("id", "slug", "name", "status"):
+        if key in row:
+            out.setdefault(key, row[key])
+    if not out.get("findings") and row.get("llm_review_comments"):
+        out["findings"] = [{
+            "area": "reviewer",
+            "level": "concern",
+            "message": str(row["llm_review_comments"])[:2000],
+        }]
+    return out
+
+
+def _zip_paths(root: Path, members: list[str]) -> io.BytesIO:
+    """Zip a chosen set of files and folders, relative to ``root``."""
+    buf = io.BytesIO()
+    root = Path(root)
+    wrote = False
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for member in members:
+            src = root / member
+            if src.is_file():
+                zf.write(src, src.relative_to(root))
+                wrote = True
+            elif src.is_dir():
+                for f in src.rglob("*"):
+                    if (f.is_file() and "__pycache__" not in f.parts
+                            and f.name != ".gitkeep"):
+                        zf.write(f, f.relative_to(root))
+                        wrote = True
+        if not wrote:
             zf.writestr("_empty", "")
     buf.seek(0)
     return buf

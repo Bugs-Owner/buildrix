@@ -1,93 +1,87 @@
 ---
+# ─── portable core: read by Claude Code, Codex, and any Agent Skills host ───
 name: your-skill-name
 description: >-
-  [REQUIRED] A clear description of what this skill does and when to use it.
-  Include keywords that agents and users will search for. Mention the
-  building-science domain context. Max 200 characters recommended.
+  [What it does, in one or two sentences.] Use when [the situation that should
+  trigger it — write the words a user would actually type]. This paragraph is
+  all an agent sees before deciding whether to load the skill, so write it for
+  that reader. 40–1024 characters.
 license: Apache-2.0
+# allowed-tools: [Bash, Read, Write]        # optional; omit for the host default
+
+# ─── Buildrix block: ignored by hosts, required by the registry ─────────────
 metadata:
-  author: your-name-or-org
+  buildrix_schema: "skill/2.0"
   version: "0.1.0"
-  domain: general          # general | energy-modeling | control-optimization | semantic-modeling | lighting | code-compliance | thermal-comfort
-  tags: []                 # e.g., [weather, solar, HVAC, EnergyPlus]
+  domain: performance-modeling      # one of the eight — `buildrix domains`
+  tags: []                          # free text, e.g. [mpc, chiller, ashrae-140]
+  authors:
+    - name: "[Your Name]"
+      affiliation: ""
+      orcid: ""
+      github: ""
+  requires:
+    python: ">=3.11,<3.14"
+    packages: []                    # pinned, e.g. ["pandas==2.2.2"]
+    external_tools: []              # e.g. [{name: EnergyPlus, version: "24.2.0"}]
+  network: []                       # every host you contact; [] means offline
+  determinism: deterministic        # deterministic | seeded | stochastic
+  provenance:
+    derived_from: []
+    data_licenses: []
 ---
 
 # Your Skill Name
 
-[Brief overview — 2-3 sentences describing what this skill does and why it matters
-for building science applications.]
+## Overview
 
-## When to Use This Skill
+Two or three sentences: what this does, and why it matters for building work.
 
-- [Trigger condition 1 — what would the user say?]
-- [Trigger condition 2]
-- [Trigger condition 3]
+## When to use
 
-## Capabilities
+Concrete triggers, in the words a user would say:
 
-- [What can this skill do? — bullet list of features]
-- [What data sources does it use?]
-- [What outputs does it produce?]
+- "..."
+- "..."
 
-## Instructions
+Do not use this for [the neighbouring case that belongs to a different skill].
 
-### Step 1: Understand the Input
+## Inputs
 
-[What information does the agent need from the user? Location? Date range?
-File path? Configuration parameters?]
+What the agent has to collect before running anything.
 
-### Step 2: Execute the Task
+| Input | Form | Notes |
+|---|---|---|
+| ... | CSV, 15-minute or finer | columns: ... |
 
-[What script to run and how. Include a complete code example:]
+## Workflow
 
-```python
-import sys
-sys.path.insert(0, "<skill_directory>/scripts")
-from main import run
+1. **Prepare the data.**
+   ```bash
+   python {skill_dir}/scripts/main.py prepare --input <path> --out clean.csv
+   ```
+2. **Run the main step.**
+   ```bash
+   python {skill_dir}/scripts/main.py run --data clean.csv --out outputs/
+   ```
+3. **Check the result** against the bounds in Limits below before reporting it.
 
-result = run(
-    # parameter_1="value",
-    # parameter_2="value",
-    # output_dir="outputs",
-)
-```
+`{skill_dir}` is the folder this file is in. Never write an absolute path.
 
-### Step 3: Deliver Outputs
+## Outputs
 
-[What files are produced? What should the agent present to the user?]
-
-- `outputs/result.csv` — [description]
-- `outputs/report.md` — [description]
-- `outputs/plot.png` — [description]
+- `outputs/result.csv` — ...
+- `outputs/report.md` — ...
 
 ## Examples
 
-**Example 1 — [Basic usage]:**
-> "[Exact user prompt]"
+**"[an exact user prompt]"**
 
-→ [What the agent does, step by step]
+The agent collects [inputs], runs step 2, and reports [what].
 
-**Example 2 — [Advanced usage]:**
-> "[Exact user prompt]"
+## Limits
 
-→ [What the agent does]
-
-## Limitations
-
-- [What this skill cannot do]
-- [Known constraints — data availability, resolution, accuracy]
-- [When the user should use a different approach]
-
-## Data Sources
-
-- [Where does this skill get its data? APIs, files, databases?]
-- [Any API keys required?]
-- [Rate limits or usage restrictions?]
-
-## Dependencies
-
-See `requirements.txt` in this skill's directory.
-
-## References
-
-See the `references/` directory for related papers, documentation, or data dictionaries.
+- Real bounds, with numbers. "Needs enough data" is not a bound; "needs four
+  weeks at 15-minute resolution" is.
+- What this cannot do, and which skill to reach for instead.
+- Where the method comes from, and how accurate it is.

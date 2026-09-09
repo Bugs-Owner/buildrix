@@ -1,206 +1,257 @@
 # Buildrix
 
-**Open skill framework for building science AI agents.**
+**An open skill framework and benchmark for building-engineering AI agents.**
 
-Build, share, and benchmark reusable AI skills for architecture, engineering, and construction (AEC) workflows. Skills work with Claude Code, OpenAI Codex, Gemini CLI, and any tool supporting the [Agent Skills](https://agentskills.io) open standard.
+Buildrix exists to answer one question with evidence: *does packaging
+building-engineering expertise as an agent skill make an agent measurably better
+at real work?*
 
+Skills are plain [Agent Skills](https://agentskills.io) folders, so they work in
+Claude Code, OpenAI Codex, Gemini CLI, or anything else that reads the standard.
+Tasks are real professional work with hidden, scripted graders. Every benchmark
+run is **paired**: the same model, the same harness, the same budget, run once
+with the skills and once with none. The difference between the two arms is the
+result.
 
-<img width="2538" height="1508" alt="overall_demo_fast" src="https://github.com/user-attachments/assets/6d0594c6-10a1-46b9-bacb-14e958c406e3" />
-
-
-Community hub: **[buildrixhub.onrender.com](https://buildrixhub.onrender.com/)** — browse skills, test cases, challenges, and leaderboard.
+Hub: **[buildrixhub.onrender.com](https://buildrixhub.onrender.com/)**
 
 ---
 
-## Quick Start
+## Install
 
 ```bash
-# Install
 git clone https://github.com/Bugs-Owner/buildrix.git
 cd buildrix
 pip install -e .
 
-# Connect to the hub
 buildrix config hub https://buildrixhub.onrender.com
-buildrix login --register
-
-# Browse what's available
-buildrix browse
-buildrix domains
-
-# Install a skill and use it with Claude Code
-buildrix install weather-data-extraction
-# → installed to ~/.buildrix/skills/ and linked to ~/.claude/skills/
-```
-
-Open Claude Code and ask: *"Extract April 2025 weather data for Syracuse, NY"* — Claude discovers and uses the skill automatically.
-
----
-
-## CLI Reference
-
-### Account
-
-```bash
-buildrix register                        # Create a hub account
-buildrix login                           # Log in
-buildrix logout                          # Log out
-buildrix whoami                          # Show current user
-buildrix config hub <url>                # Set hub URL
-buildrix info                            # Hub stats + connection info
-```
-
-### Install & Manage Skills
-
-```bash
-buildrix install <name> [name2 ...]      # Install from hub (batch OK)
-buildrix uninstall <name> [name2 ...]    # Remove (batch OK)
-buildrix dev <skill-dir>                 # Link a local skill for development
-buildrix list                            # List installed skills
-```
-
-### Discover Skills
-
-```bash
-buildrix browse                          # List all hub skills
-buildrix browse --domain energy-modeling # Filter by domain
-buildrix browse --sort most_downloaded   # Sort options: newest, oldest, most_liked, most_downloaded, most_saved
-buildrix search <query>                  # Search by keyword
-buildrix domains                         # Show valid domain categories
-```
-
-### Push & Update
-
-```bash
-buildrix push <dir>                      # Push a single skill
-buildrix push <dir1> <dir2> ...          # Push multiple skills
-buildrix push skillset/ --all            # Auto-discover and push all skills in a directory
-buildrix push skillset/ --all --update   # Update all existing skills you own
-buildrix delete <name> [name2 ...] --yes # Delete from hub (batch OK)
-```
-
-### Scaffold
-
-```bash
-buildrix new skill <name>                # Create a skill from template
-buildrix new testcase <name>             # Create a test case from template
+buildrix auth login --register
 ```
 
 ---
 
-## Available Skills
+## The commands
 
-| Skill | Domain | Description |
-|-------|--------|-------------|
-| `weather-data-extraction` | energy-modeling | Site-specific weather data via Open-Meteo — GHI, temperature, humidity, wind |
-| `heat-wave-identification` | energy-modeling | Identify extreme heat events (WMO, NWS, percentile methods) |
-| `energyplus-simulation` | energy-modeling | Run EnergyPlus IDF files, collect results to Parquet/CSV |
-| `energyplus-eppy` | energy-modeling | Read/modify IDF files with eppy — envelope, HVAC, schedules |
-| `resstock-building-generation` | energy-modeling | Generate residential IDFs from NREL ResStock distributions |
-| `timeseries-forecast` | energy-modeling | LSTM forecasting for building data (GPU-accelerated) |
-| `error-notebook` | general | Self-improvement protocol — track and fix agent errors |
+One shape for everything: `buildrix <noun> <verb>`. The verbs mean the same
+thing for a skill and for a task.
 
-Install any of them: `buildrix install weather-data-extraction heat-wave-identification`
+```
+buildrix skill  new | check | submit | status | install | list | remove
+                pull | update | dev | search | browse | delete
+buildrix task   new | check | submit | status | get | list
+buildrix bench  run | submit | status | list
+buildrix auth   login | logout | whoami | register
+buildrix domains [--task]
+buildrix info
+buildrix env    info | setup | clean
+buildrix config hub <url>
+```
+
+| Verb | What it does | Where it runs |
+|---|---|---|
+| `new` | Scaffolds the folder layout | local |
+| `check` | Runs every mechanical gate — the same code the hub runs | local |
+| `submit` | Uploads, then prints the checks and the reviewer's comments | server |
+| `status` | Current verdict, round number, and what is still missing | server |
+| `install` / `get` | Pulls a published skill, or a task's public half | server |
+
+The web forms on the hub call the same endpoints and render the same report, so
+you can start in the browser and finish in the terminal, or the other way round.
+
+The older flat commands (`login`, `install`, `push`, `browse`, …) still work and
+print a one-line note pointing at the new form.
 
 ---
 
-## Domain Categories
-
-Skills are organized into building-science domains that match the hub:
-
-- `general` — cross-cutting tools and utilities
-- `energy-modeling` — energy simulation, weather data, load analysis
-- `control-optimization` — HVAC controls, MPC, optimization
-- `semantic-modeling` — BIM, IFC, ontologies
-- `lighting` — daylighting, glare, lighting design
-- `code-compliance` — building codes, standards checking
-- `thermal-comfort` — PMV/PPD, adaptive comfort, ASHRAE 55
-
-Set the domain in your SKILL.md frontmatter: `domain: energy-modeling`
-
----
-
-## Creating a Skill
+## Write a skill
 
 ```bash
-buildrix new skill my-skill-name
+buildrix skill new chiller-plant-mpc
+# write the description, put your code in scripts/, a test in tests/
+buildrix skill check ./chiller-plant-mpc
+buildrix skill submit ./chiller-plant-mpc
 ```
 
-This generates:
-
 ```
-my-skill-name/
-├── SKILL.md           # Agent instructions + YAML frontmatter
-├── config.yaml        # Structured metadata
-├── scripts/main.py    # Your code
-├── tests/             # Unit tests
-├── requirements.txt   # Dependencies
-├── references/        # Papers, docs
-├── assets/            # Templates, data
-├── NOTES.md           # Agent error log
-├── CHANGELOG.md       # Version history
-└── LICENSE            # Apache 2.0
+skill-name/
+├── SKILL.md            frontmatter + the seven required sections
+├── requirements.txt    pinned dependencies
+├── scripts/            your code
+├── references/         long-form docs, loaded on demand
+├── assets/             templates, lookup tables, small data
+├── tests/              runnable checks
+└── NOTES.md            what went wrong and what fixed it
 ```
 
-Edit `SKILL.md` and `config.yaml`, implement your logic in `scripts/`, test locally with `buildrix dev my-skill-name/`, then push with `buildrix push my-skill-name/`.
+A Buildrix skill is a valid Agent Skill **first**. Everything Buildrix needs on
+top of the open standard lives inside the frontmatter's `metadata:` block, which
+hosts ignore, so nothing here stops the folder working elsewhere:
 
-## Creating a Test Case
+```yaml
+---
+name: chiller-plant-mpc
+description: >-
+  Fits a grey-box thermal model of a chiller plant from operating data, then
+  solves a day-ahead setpoint schedule under a price signal. Use when a task
+  involves plant-level optimisation, MPC, or shifting cooling load in time.
+license: Apache-2.0
+
+metadata:
+  buildrix_schema: "skill/2.0"
+  version: "0.1.0"
+  domain: operations-control
+  requires: {python: ">=3.11,<3.14", packages: ["cvxpy==1.5.3"]}
+  network: []                 # every host you contact; [] means offline
+  determinism: deterministic  # checked, not taken on trust
+---
+```
+
+`buildrix skill check` enforces eight rules: structure, frontmatter, a
+description that says *when* to use the skill, the seven required sections, a
+5,000-token body budget, no absolute paths or secrets, a 25 MB cap, and tests
+that pass. With `--determinism` it runs the tests twice and compares.
+
+Then the hub's reviewer reads the prose — the description and the limits, because
+those decide whether an agent finds the skill and whether it misuses it.
+
+---
+
+## Write a task
 
 ```bash
-buildrix new testcase my-test-case
+buildrix task new ahu-fdd-fortnight
+# write prompt.md, put your own answer in grader/reference/
+buildrix task check ./ahu-fdd-fortnight
+buildrix task submit ./ahu-fdd-fortnight
 ```
 
-Test cases define a task with human-expert reference outputs, used for benchmarking skills. Add input data to `inputs/`, reference outputs to `expected_outputs/`, then `buildrix push my-test-case/`.
+```
+task-name/
+├── PUBLIC  — goes to every runner
+│   ├── TASK.yaml           the contract
+│   ├── prompt.md           the only text the agent reads
+│   ├── inputs/             what the agent starts with
+│   ├── env/requirements.txt
+│   ├── collect.py          workspace -> submission bundle
+│   └── provenance.md
+└── PRIVATE — stays on the server
+    └── grader/
+        ├── grade.py        grade(bundle, reference) -> {"overall": ...}
+        ├── reference/      your own answer
+        └── mutations/      three wrong-but-plausible answers
+```
+
+A task is a contract, not a description. Two rules make that mechanical:
+
+- **Every check carries a phrase copied from `prompt.md`, word for word.** If the
+  phrase is not in the prompt, the task does not publish. You cannot grade what
+  you did not ask for.
+- **Anything you tell the agent to do that no check covers gets flagged**, so
+  either add a check or cut the sentence.
+
+`buildrix task check` runs the gates against your own files:
+
+```
+  schema .................... pass   CONTROLS
+  prompt .................... pass   45 words
+  deliverables .............. pass   2 file(s)
+  anchors ................... pass   3/3 found
+  prompt coverage ........... pass
+  gold (G3) ................. pass   1.00
+  floor (G4) ................ pass   0.00
+  discrimination (G5) ....... pass   3 case(s) fail as intended
+  repeatable (G6) ........... pass
+
+  verdict: ready to submit
+```
+
+G3 to G6 are the interesting ones. Your own answer has to score exactly 1.00, an
+empty folder has to score 0.00, each wrong-but-plausible case you supplied has to
+score below the pass mark, and grading the same folder twice has to give the same
+number. G5 is the one that matters most: it proves the grader can tell a good
+answer from a plausible bad one.
+
+**There is no difficulty field.** Difficulty is the measured pass rate of an
+agent working with no skills at all, over at least twenty trials on two model
+setups, written back by the server with its confidence interval and trial count.
 
 ---
 
-## How Skills Compose
+## Domains
 
-Skills chain together — you contribute domain expertise, the community handles the rest:
+Eight, closed, the same in the CLI, the server and the site:
 
-```
-User: "What were the extreme heat events in Syracuse last year?"
-       │
-       ▼
-  ┌─────────────────────────────┐
-  │ weather-data-extraction     │  ← fetches raw temperature data
-  └─────────────┬───────────────┘
-                │
-                ▼
-  ┌─────────────────────────────┐
-  │ heat-wave-identification    │  ← finds events, computes CDH
-  └─────────────┬───────────────┘
-                │
-                ▼
-           User gets results
-```
+| id | Domain |
+|---|---|
+| `performance-modeling` | Building Performance Modeling & Simulation |
+| `design-retrofit` | Design, Retrofit & Decarbonization |
+| `operations-control` | Building Operations, Control & Optimization |
+| `fdd-commissioning` | Fault Detection, Diagnostics & Commissioning |
+| `occupants-comfort` | Occupants, Comfort & Indoor Environmental Quality |
+| `forecasting-analytics` | Energy Forecasting & Performance Analytics |
+| `grid-integrated` | Grid-Interactive & Integrated Energy Systems |
+| `data-semantics-twins` | Building Data, Semantics & Digital Twins |
+
+Plus `general` for cross-cutting tooling — a skill may use it, a task may not.
+`buildrix domains` prints the list; `--task` shows only the eight.
 
 ---
 
-## Project Structure
+## The benchmark
+
+Heavy compute runs on your machine. The server only grades.
 
 ```
-buildrix/
-├── buildrix/              # CLI package
-│   ├── cli.py             # Command definitions
-│   ├── hub_client.py      # Hub API client
-│   ├── config.py          # Local config (~/.buildrix/)
-│   ├── skill_manager.py   # Install/uninstall logic
-│   └── scaffold.py        # Template scaffolding
-├── skillset/              # Community skills (pushed to hub)
-├── templates/             # Skill & test case templates
-├── examples/              # Working examples
-├── pyproject.toml
-└── requirements.txt
+YOUR MACHINE                                    SERVER
+fetch the public task pack + a run token  --->  token issued, pack served
+build the pinned environment
+run arm A: agent, no skills        ) paired,
+run arm B: agent, with skills      ) randomised order
+collect.py -> bundle under 50 MB
+sign the manifest, upload                 --->  verify, load the hidden grader,
+                                                score in seconds, store the run
 ```
 
-## Community
+`buildrix bench` is not in this release. When it lands, one command runs both
+arms — there is no flag for running only the treatment, and a run without its
+control arm is refused on upload. Fairness is enforced by making the honest path
+the only path.
 
-- **Browse skills & challenges:** [Buildrix Hub](https://buildrixhub.onrender.com/)
-- **Report issues:** [GitHub Issues](https://github.com/Bugs-Owner/buildrix/issues)
-- **Hub source:** [github.com/Bugs-Owner/buildrixhub](https://github.com/Bugs-Owner/buildrixhub)
-- **Contribute:** See [CONTRIBUTING.md](CONTRIBUTING.md)
+Results are reported as the gap in pass rate with McNemar's exact test on paired
+per-task outcomes, normalised gain, cost per task, and the count of tasks that
+got **worse** with skills.
 
-## License
+---
 
-Apache 2.0
+## Specification
+
+The full written spec — skill format, task format, the run protocol, the review
+loop, the domain taxonomy — lives alongside this repo in `spec/`:
+
+| File | Covers |
+|---|---|
+| `00-OVERVIEW.md` | The four artifacts and the prior art we borrow from |
+| `01-TAXONOMY.md` | The eight domains |
+| `02-SKILL_FORMAT.md` | `skill/2.0` |
+| `03-TASK_FORMAT.md` | `task/2.0` and the nine gates |
+| `04-EVALUATION_PROTOCOL.md` | Local runner, thin server, paired isolation |
+| `05-INTAKE_REVIEW.md` | The three submission routes and the reviewer |
+| `06-SITE_IA.md` | The hub's structure |
+
+---
+
+## Prior art
+
+**Agents' Last Exam** ([arXiv:2606.05405](https://arxiv.org/abs/2606.05405)) —
+executable tasks from real professional work, hidden references, scripted
+grading. Their finding that most agent failures come from missing domain
+knowledge rather than broken tool use is the reason Buildrix exists.
+
+**SkillsBench** ([arXiv:2602.12670](https://arxiv.org/abs/2602.12670)) — the
+paired design, and the finding that skills help by wildly different amounts by
+domain and sometimes make things worse. Both are reported here as first-class
+results.
+
+---
+
+Apache-2.0.

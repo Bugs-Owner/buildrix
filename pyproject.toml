@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "buildrix"
-version = "0.2.0"
-description = "Open skill framework for building science AI agents"
+version = "0.3.0"
+description = "Open skill framework and benchmark for building-engineering AI agents"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 
@@ -15,6 +15,10 @@ dependencies = [
     "matplotlib>=3.7",
     "pyyaml>=6.0",
 ]
+
+[project.optional-dependencies]
+# `buildrix skill check` runs a skill's tests when pytest is importable.
+dev = ["pytest>=8.0"]
 
 [project.scripts]
 buildrix = "buildrix.cli:main"

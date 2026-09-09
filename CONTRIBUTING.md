@@ -1,5 +1,10 @@
 # Contributing to Buildrix
 
+> **Commands changed in 0.3.0.** Everything is `buildrix <noun> <verb>` now:
+> `buildrix skill new|check|submit|status`, `buildrix task new|check|submit|status`.
+> The old flat commands still work and print a note pointing at the new form.
+> See the README for the full list.
+
 This guide walks you through contributing a new skill, using the
 **heat wave identification** skill as a real example.
 
@@ -31,7 +36,7 @@ buildrix info
 ### Step 1: Scaffold
 
 ```bash
-buildrix new skill heat-wave-identification
+buildrix skill new heat-wave-identification
 ```
 
 This creates:
@@ -120,13 +125,14 @@ skill (to identify events).
 
 ```bash
 # Push a single skill
-buildrix push heat-wave-identification/
+buildrix skill check ./heat-wave-identification
+buildrix skill submit ./heat-wave-identification
 
 # Or push all skills at once
-buildrix push skillset/ --all
+buildrix skill submit ./skillset/*
 
 # Update existing skills you own
-buildrix push skillset/ --all --update
+buildrix skill submit ./skillset/*
 ```
 
 Output:
@@ -151,7 +157,7 @@ Once accepted, your skill appears on the hub for everyone to install.
 Test cases define a task + expected outputs, so skills can be benchmarked.
 
 ```bash
-buildrix new testcase phoenix-heat-waves-summer-2024
+buildrix task new phoenix-heat-waves-summer-2024
 ```
 
 Edit `TESTCASE.yaml`:
@@ -179,7 +185,8 @@ Add your reference output (what a correct result looks like) to
 `expected_outputs/`. Then push:
 
 ```bash
-buildrix push phoenix-heat-waves-summer-2024/
+buildrix task check ./phoenix-heat-waves-summer-2024
+buildrix task submit ./phoenix-heat-waves-summer-2024
 ```
 
 ---
@@ -219,13 +226,13 @@ The CLI supports batch operations to save time:
 
 ```bash
 # Install multiple skills at once
-buildrix install weather-data-extraction heat-wave-identification energyplus-eppy
+buildrix skill install weather-data-extraction heat-wave-identification energyplus-eppy
 
 # Uninstall multiple
 buildrix uninstall weather-data-extraction heat-wave-identification
 
 # Push everything under skillset/
-buildrix push skillset/ --all --update
+buildrix skill submit ./skillset/*
 
 # Delete multiple from the hub
 buildrix delete old-skill-1 old-skill-2 --yes

@@ -1,142 +1,152 @@
-"""Scaffold new skills and test cases from templates."""
+"""Scaffold new skills and tasks from the bundled templates."""
+
+from __future__ import annotations
 
 import shutil
 from pathlib import Path
 
 from buildrix.config import get_user
 
-# Templates are bundled with the package
 _PACKAGE_DIR = Path(__file__).parent.parent
 _TEMPLATES_DIR = _PACKAGE_DIR / "templates"
-
-# Text file extensions to search-and-replace in
-_TEXT_EXTENSIONS = {".md", ".yaml", ".yml", ".txt", ".py", ".json", ""}
+_TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".txt", ".py", ".json"}
 
 
 def scaffold_skill(name: str, target_dir: str = ".") -> Path:
-    """
-    Create a new skill directory from the standardized template.
+    """Create a skill/2.0 folder.
 
-    Generates the full Buildrix skill structure:
         skill-name/
-        ├── SKILL.md           # Agent instructions (fill in)
-        ├── config.yaml        # Structured metadata (fill in)
-        ├── NOTES.md           # Error notebook (agent-managed)
-        ├── CHANGELOG.md       # Version history
-        ├── LICENSE             # Apache 2.0
-        ├── requirements.txt   # Skill-specific dependencies
-        ├── scripts/
-        │   └── main.py        # Entry point (fill in)
-        ├── tests/
-        │   └── test_main.py   # Unit tests
-        ├── references/
-        │   └── README.md
-        └── assets/
-            └── README.md
+        |-- SKILL.md            frontmatter + the seven required sections
+        |-- requirements.txt    pinned dependencies
+        |-- scripts/main.py     your code
+        |-- tests/test_main.py  runnable checks
+        |-- references/         long-form docs, loaded on demand
+        |-- assets/             templates, lookup tables, small data
+        +-- NOTES.md            what went wrong and what fixed it
     """
+    dest = _copy_template("skill", name, target_dir)
+
+    user = get_user() or {}
+    author = user.get("display_name") or user.get("name") or ""
+    affiliation = user.get("affiliation") or ""
+
+    _replace(dest, {
+        "your-skill-name": name,
+        "Your Skill Name": _title(name),
+        '"[Your Name]"': f'"{author}"' if author else '"[Your Name]"',
+        'affiliation: ""': f'affiliation: "{affiliation}"' if affiliation else 'affiliation: ""',
+    })
+
+    print(f"\n  created  {dest}\n")
+    _tree([
+        ("SKILL.md", "what it does, when to use it, how it runs"),
+        ("requirements.txt", "pinned dependencies"),
+        ("scripts/main.py", "your code"),
+        ("tests/test_main.py", "at least one end-to-end test"),
+        ("references/", "long-form docs, loaded on demand"),
+        ("assets/", "templates and small data"),
+        ("NOTES.md", "error log"),
+    ])
+    print("  next\n"
+          "    1. write the description in SKILL.md - an agent decides from that alone\n"
+          "    2. put your code in scripts/ and a test in tests/\n"
+          f"    3. buildrix skill check {dest}\n"
+          f"    4. buildrix skill submit {dest}\n")
+    return dest
+
+
+def scaffold_task(name: str, target_dir: str = ".") -> Path:
+    """Create a task/2.0 folder.
+
+        task-name/
+        |-- TASK.yaml           the contract
+        |-- prompt.md           the only text the agent reads
+        |-- inputs/             what the agent starts with
+        |-- env/requirements.txt
+        |-- collect.py          workspace -> submission bundle
+        |-- provenance.md       whose work this was
+        +-- grader/             PRIVATE - never leaves the server
+            |-- grade.py
+            |-- reference/      your own answer
+            +-- mutations/      wrong-but-plausible answers
+    """
+    dest = _copy_template("task", name, target_dir)
+
+    user = get_user() or {}
+    author = user.get("display_name") or user.get("name") or ""
+    affiliation = user.get("affiliation") or ""
+
+    _replace(dest, {
+        "your-task-name": name,
+        '"[Your Name]"': f'"{author}"' if author else '"[Your Name]"',
+        'affiliation: ""': f'affiliation: "{affiliation}"' if affiliation else 'affiliation: ""',
+    })
+
+    print(f"\n  created  {dest}\n")
+    _tree([
+        ("TASK.yaml", "the contract: deliverables, rules, checks"),
+        ("prompt.md", "the only text the agent reads"),
+        ("inputs/", "what the agent starts with"),
+        ("env/requirements.txt", "pinned"),
+        ("collect.py", "reduces a finished workspace to a small bundle"),
+        ("grader/grade.py", "private; scores a bundle against the reference"),
+        ("grader/reference/", "private; your own answer"),
+        ("grader/mutations/", "private; three wrong-but-plausible answers"),
+        ("provenance.md", "whose work this was"),
+    ])
+    print("  next\n"
+          "    1. write prompt.md as you would brief a new engineer\n"
+          "    2. put your own answer in grader/reference/\n"
+          "    3. add three degraded copies under grader/mutations/\n"
+          f"    4. buildrix task check {dest}\n"
+          f"    5. buildrix task submit {dest}\n")
+    return dest
+
+
+# Kept so older docs and scripts keep working.
+scaffold_testcase = scaffold_task
+
+
+# -- helpers -----------------------------------------------------------------
+
+def _copy_template(kind: str, name: str, target_dir: str) -> Path:
     dest = Path(target_dir) / name
     if dest.exists():
-        raise FileExistsError(f"Directory already exists: {dest}")
+        raise FileExistsError(f"{dest} already exists")
 
-    template = _TEMPLATES_DIR / "skill"
+    template = _TEMPLATES_DIR / kind
     if not template.exists():
         raise FileNotFoundError(
-            f"Skill template not found at {template}. "
-            "Make sure you're running from a buildrix repo clone."
+            f"Template not found at {template}. Reinstall buildrix, or run from a clone."
         )
-
-    shutil.copytree(template, dest, ignore=shutil.ignore_patterns(".gitkeep"))
-
-    # Get author info from login (if available)
-    user = get_user()
-    author_name = user.get("name", "") if user else ""
-    author_email = user.get("email", "") if user else ""
-
-    # Replace placeholders across all text files
-    title = _to_title(name)
-    replacements = {
-        "your-skill-name": name,
-        "Your Skill Name": title,
-        "[Author Name]": author_name or "[Author Name]",
-    }
-
-    # Also fill in config.yaml author fields
-    config_replacements = {
-        '  name: ""               # Your display name': f'  name: "{author_name}"',
-        '  email: ""              # Contact email': f'  email: "{author_email}"',
-    }
-
-    for file_path in dest.rglob("*"):
-        if file_path.is_file() and file_path.suffix in _TEXT_EXTENSIONS:
-            try:
-                content = file_path.read_text()
-                for old, new in replacements.items():
-                    content = content.replace(old, new)
-                if file_path.name == "config.yaml":
-                    for old, new in config_replacements.items():
-                        content = content.replace(old, new)
-                file_path.write_text(content)
-            except (UnicodeDecodeError, PermissionError):
-                continue
-
-    print(f"✅ Created skill: {dest}")
-    print()
-    print(f"  {dest}/")
-    print(f"  ├── SKILL.md           ← describe what the skill does")
-    print(f"  ├── config.yaml        ← fill in metadata")
-    print(f"  ├── scripts/main.py    ← put your code here")
-    print(f"  ├── tests/test_main.py ← add tests")
-    print(f"  ├── requirements.txt   ← skill dependencies")
-    print(f"  ├── references/        ← papers, docs")
-    print(f"  ├── assets/            ← templates, data")
-    print(f"  ├── NOTES.md           ← agent error log (auto)")
-    print(f"  ├── CHANGELOG.md       ← version history")
-    print(f"  └── LICENSE")
-    print()
-    print("  Next steps:")
-    print(f"  1. Edit SKILL.md and config.yaml")
-    print(f"  2. Put your code in scripts/main.py")
-    print(f"  3. Test: buildrix dev {dest}")
-    print(f"  4. Push: buildrix push {dest}")
-    print()
-
+    shutil.copytree(template, dest)
+    for keep in dest.rglob(".gitkeep"):
+        keep.unlink()
     return dest
 
 
-def scaffold_testcase(name: str, target_dir: str = ".") -> Path:
-    """Create a new test case directory from the template."""
-    dest = Path(target_dir) / name
-    if dest.exists():
-        raise FileExistsError(f"Directory already exists: {dest}")
+def _replace(root: Path, mapping: dict[str, str]) -> None:
+    for f in root.rglob("*"):
+        if not f.is_file() or f.suffix.lower() not in _TEXT_SUFFIXES:
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, PermissionError):
+            continue
+        new = text
+        for old, repl in mapping.items():
+            new = new.replace(old, repl)
+        if new != text:
+            f.write_text(new, encoding="utf-8")
 
-    template = _TEMPLATES_DIR / "testcase"
-    if not template.exists():
-        raise FileNotFoundError(f"Test case template not found at {template}.")
 
-    shutil.copytree(template, dest, ignore=shutil.ignore_patterns(".gitkeep"))
-
-    # Replace placeholder
-    tc_yaml = dest / "TESTCASE.yaml"
-    content = tc_yaml.read_text()
-    content = content.replace("your-testcase-name", name)
-    tc_yaml.write_text(content)
-
-    print(f"✅ Created test case: {dest}")
-    print()
-    print(f"  {dest}/")
-    print(f"  ├── TESTCASE.yaml      ← define the task and expected outputs")
-    print(f"  ├── inputs/            ← input data files")
-    print(f"  └── expected_outputs/  ← gold-standard reference outputs")
-    print()
-    print("  Next steps:")
-    print(f"  1. Edit TESTCASE.yaml")
-    print(f"  2. Add data to inputs/ and expected_outputs/")
-    print(f"  3. Push: buildrix push {dest}")
+def _tree(rows: list[tuple[str, str]]) -> None:
+    width = max(len(r[0]) for r in rows) + 2
+    for i, (path, note) in enumerate(rows):
+        stem = "+--" if i == len(rows) - 1 else "|--"
+        print(f"  {stem} {path:<{width}} {note}")
     print()
 
-    return dest
 
-
-def _to_title(name: str) -> str:
-    """Convert 'heat-wave-identification' to 'Heat Wave Identification'."""
+def _title(name: str) -> str:
     return " ".join(w.capitalize() for w in name.replace("-", " ").replace("_", " ").split())

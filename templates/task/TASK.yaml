@@ -1,0 +1,119 @@
+schema: "task/2.0"
+
+# ── 1. Where it comes from ──────────────────────────────────────────────────
+identity:
+  id: your-task-name                  # lower case, hyphens; immutable
+  title: ""                           # one line, plain language
+  version: "1.0.0"
+  license: CC-BY-4.0
+  authors:
+    - name: "[Your Name]"
+      affiliation: ""
+      orcid: ""
+
+taxonomy:
+  domain: performance-modeling        # one of the eight — `buildrix domains --task`
+  tags: []
+  human_minutes: 0                    # how long this took you, honestly
+# No tier, no difficulty. Difficulty is the measured no-skill pass rate,
+# written back by the server once the baseline runs exist.
+
+# ── 2. The job ──────────────────────────────────────────────────────────────
+task:
+  prompt_file: prompt.md              # the only text the agent reads
+  workspace_layout: |
+    inputs/...
+    outputs/            (empty; the agent writes here)
+
+# ── 3. What is given ────────────────────────────────────────────────────────
+inputs:
+  files:
+    - path: inputs/example.csv
+      description: ""
+  data_sources: []                    # external APIs, if the task allows them
+
+# ── 4. What comes back ──────────────────────────────────────────────────────
+deliverables:
+  - path: outputs/result.csv
+    format: csv
+    required: true
+    naming: normalized                # normalized | strict
+    schema:
+      index: {name: timestamp, type: datetime, tz: UTC, freq: 1h}
+      columns:
+        - {name: value, unit: kWh, type: float, range: [0, 10000]}
+      rows: {min: 1, max: 100000}
+  - path: outputs/report.md
+    format: markdown
+    required: true
+
+# ── 5. The run environment ──────────────────────────────────────────────────
+environment:
+  os: any                             # any | linux | windows | macos
+  python: ">=3.11,<3.14"
+  requirements: env/requirements.txt  # pinned
+  external_tools: []
+  network:
+    policy: offline                   # allowlist | offline
+    hosts: []
+  gpu: false
+
+# Both arms of a paired run get exactly this. State it.
+budget:
+  wall_clock_s: 900
+  max_tokens: 250000
+  max_tool_calls: 120
+
+# ── 6. Ground rules ─────────────────────────────────────────────────────────
+# Anything that changes the answer is either free or pinned. Silence is what
+# makes a task unfair.
+freedom:
+  free: []                            # e.g. ["any library", "any detection method"]
+  fixed: []                           # e.g. [{requirement: "...", reason: "..."}]
+variance_controls:
+  seeds: []
+  pinned: []                          # evaluation period, data vintage, versions
+
+# ── 7. How it is scored ─────────────────────────────────────────────────────
+rubric:
+  pass_threshold: 0.75
+  llm_judge_weight_cap: 0.25          # judged weight may not exceed this
+  criteria:
+    - id: result_present
+      weight: 0.20
+      check: file_exists
+      args: {path: outputs/result.csv}
+      prompt_anchor: ""               # a phrase copied from prompt.md, verbatim
+
+    - id: result_schema
+      weight: 0.30
+      check: schema
+      args: {path: outputs/result.csv}
+      prompt_anchor: ""
+
+    - id: values_vs_reference
+      weight: 0.50
+      check: timeseries_compare
+      args:
+        path: outputs/result.csv
+        reference: result.csv
+        columns: [value]
+        metrics: {nmbe_pct: 5.0, cvrmse_pct: 15.0}
+      prompt_anchor: ""
+
+# Weights sum to 1.0. Every criterion's prompt_anchor must appear in prompt.md,
+# or the task will not publish.
+
+# ── 8. Three ways a wrong answer could still look right ─────────────────────
+# Put a degraded copy of your answer in grader/mutations/<name>/. Each one must
+# score below pass_threshold, or the grader is not strict enough.
+mutation_tests:
+  - {name: drop_a_column,    expect_below: 0.75}
+  - {name: shift_the_values, expect_below: 0.75}
+  - {name: half_the_period,  expect_below: 0.75}
+
+# ── 9. Provenance ───────────────────────────────────────────────────────────
+provenance:
+  origin: ""                          # the real job this came from
+  expert: {role: "", minutes: 0, confidence: high}
+  reference_method: ""                # how you produced your answer, and any cross-check
