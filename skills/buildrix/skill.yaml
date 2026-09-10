@@ -1,0 +1,19 @@
+schema: skill/2.0
+name: buildrix
+version: 1.0.0
+domain: general
+tags: [buildrix, benchmark, contribution, cli, tasks, skills]
+license: Apache-2.0
+authors:
+  - name: Buildrix
+determinism: deterministic
+requires:
+  python: ">=3.11"
+  packages: ["buildrix>=0.4.0"]
+  external_tools: []
+  gpu: false
+network:
+  - the Buildrix hub configured by `buildrix config hub`
+provenance:
+  derived_from: []
+  data_licenses: []

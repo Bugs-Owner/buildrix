@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "buildrix"
-version = "0.3.0"
+version = "0.5.0"
 description = "Open skill framework and benchmark for building-engineering AI agents"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -18,11 +18,11 @@ dependencies = [
 
 [project.optional-dependencies]
 # `buildrix skill check` runs a skill's tests when pytest is importable.
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pyyaml>=6.0"]
 
 [project.scripts]
 buildrix = "buildrix.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["buildrix"]
-artifacts = ["templates/**/*", "examples/**/*"]
+artifacts = ["templates/**/*", "examples/**/*", "skills/**/*"]

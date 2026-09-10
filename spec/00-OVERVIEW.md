@@ -15,23 +15,25 @@ Everything in this spec follows from that question.
 | **Run** | A *paired* execution of a task, with and without skills, on the contributor's machine | Anyone | Submitted to hub |
 | **Result** | Server-side grade of a run, aggregated into the leaderboard | Hub | Public |
 
-## Prior art we deliberately borrow from
+## Design principles
 
-**Agents' Last Exam** (Berkeley RDI, arXiv:2606.05405) — 1K+ tasks over 55 sub-fields,
-sourced from real projects that working professionals actually completed; every task is
-an executable unit carrying an instruction, its input data, and a **hidden reference**
-staged only after the agent finishes; grading is by **deterministic script**, not by an
-LLM judging whether output looks right. ALE reports that ~3/4 of failures come from
-missing domain knowledge and wrong approach, not broken tool use — which is precisely
-the gap a Skill is supposed to close, and precisely why Buildrix exists.
+**Tasks come from real work, and their answers stay hidden.** Every task is an
+executable unit carrying an instruction, its input data, and a reference answer that is
+staged only after the agent has finished — never shipped with the question. A benchmark
+whose answers travel with the task measures memorisation.
 
-**SkillsBench** (arXiv:2602.12670) — the first **paired** evaluation of agent skills:
-the same tasks run under no-skill / curated-skill / self-generated-skill conditions
-across many model-harness configurations. Headline: curated skills raise pass rate by
-~16pp on average, but the effect ranges from +4.5pp to +51.9pp by domain, and a
-meaningful minority of tasks get *worse* with skills. Two lessons we hard-code:
-1. A skill benchmark that does not run a **matched control arm** measures nothing.
-2. **Negative transfer is a first-class result**, not an embarrassment — report it.
+**Grading is evidence-driven, not impressionistic.** A result is scored against the
+artifacts the agent actually produced, using the task's own metric. Self-reported numbers
+are never trusted when Buildrix can recompute them.
+
+**A skill benchmark without a matched control measures nothing.** Every run is paired:
+the same task, model, harness and budget, executed with and without the skill. The
+difference between the arms is the result; the arms are never compared across separate
+runs.
+
+**Negative transfer is a first-class result.** Skills sometimes make agents worse. Where
+that happens it is reported as a headline number, not buried — a benchmark that only
+surfaces improvements is an advertisement.
 
 ## What Buildrix adds
 

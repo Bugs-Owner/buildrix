@@ -4,8 +4,8 @@ A task is **a contract, not a description**. If a grader can check it, the promp
 have said it; if the prompt said it, the grader should check it. Everything below exists
 to make that biconditional mechanically verifiable.
 
-Terminology change: what v1 called a *test case* is now a **task**. One word, matches
-ALE and SkillsBench, and the site nav.
+Terminology change: what v1 called a *test case* is now a **task**. One word, matching
+the site nav.
 
 ## Public / private split
 
@@ -25,8 +25,8 @@ task-slug/
 ```
 
 The reference and grader are staged **only after** the agent has finished, and only on
-the hub. This is the ALE design and it is non-negotiable: a benchmark whose answers ship
-with the question measures memorisation.
+the hub. This is non-negotiable: a benchmark whose answers ship with the question
+measures memorisation.
 
 `collect.py` exists so a 4 GB EnergyPlus output directory becomes a 2 MB submission. It
 is public, deterministic, and must not itself score anything — it selects, aggregates,

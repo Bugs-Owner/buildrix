@@ -9,11 +9,39 @@ at real work?*
 Skills are plain [Agent Skills](https://agentskills.io) folders, so they work in
 Claude Code, OpenAI Codex, Gemini CLI, or anything else that reads the standard.
 Tasks are real professional work with hidden, scripted graders. Every benchmark
-run is **paired**: the same model, the same harness, the same budget, run once
-with the skills and once with none. The difference between the two arms is the
-result.
+runs **four conditions** — the agent alone, with the expert's procedure, with the
+Skill, and with both — so the effect of a Skill is measured against a control
+rather than asserted.
 
 Hub: **[buildrixhub.onrender.com](https://buildrixhub.onrender.com/)**
+
+> **Pre-release — v0.5.0 `preview`.** Buildrix is under active development and the
+> Task and Skill formats are still moving. A format change may mean re-submitting
+> rather than migrating, and there is no compatibility promise between 0.x
+> releases. **1.0.0** will be the first release where the formats are frozen and
+> breaking one requires a major version bump.
+
+---
+
+## One standard, three interfaces
+
+```
+Web ──────────┐
+CLI ──────────┼── Buildrix backend / API ── Task · Skill · Benchmark
+Buildrix Skill┘
+```
+
+Task definition, Skill authoring, validation, matching and grading are
+implemented **once, on the server**. The website, this CLI and the official
+Buildrix Skill are three surfaces onto it. None of them has its own copy of the
+format, so none of them can drift — and a Task or Skill is identical whichever
+way it was made. You can start a draft in the browser and finish it in the
+terminal, because it is the same draft.
+
+The CLI and the Buildrix Skill do **not** get a shortcut past the guided
+workflow. If the website asks you to clarify Objective, Inputs, Instruction,
+Environment, Reproducibility, Deliverables and Evaluation, so does
+`buildrix task init`.
 
 ---
 
@@ -32,226 +60,344 @@ buildrix auth login --register
 
 ## The commands
 
-One shape for everything: `buildrix <noun> <verb>`. The verbs mean the same
-thing for a skill and for a task.
-
 ```
-buildrix skill  new | check | submit | status | install | list | remove
-                pull | update | dev | search | browse | delete
-buildrix task   new | check | submit | status | get | list
-buildrix bench  run | submit | status | list
-buildrix auth   login | logout | whoami | register
-buildrix domains [--task]
-buildrix info
-buildrix env    info | setup | clean
-buildrix config hub <url>
+buildrix
+├── task       search · show · pull · init · validate · submit · archive
+├── skill      search · show · pull · init · validate · submit · archive
+├── benchmark  match · run · pull
+└── auth · domains · info · env · config
 ```
 
-| Verb | What it does | Where it runs |
-|---|---|---|
-| `new` | Scaffolds the folder layout | local |
-| `check` | Runs every mechanical gate — the same code the hub runs | local |
-| `submit` | Uploads, then prints the checks and the reviewer's comments | server |
-| `status` | Current verdict, round number, and what is still missing | server |
-| `install` / `get` | Pulls a published skill, or a task's public half | server |
+Two motions, and they mean the same thing for a Task and for a Skill:
 
-The web forms on the hub call the same endpoints and render the same report, so
-you can start in the browser and finish in the terminal, or the other way round.
+```
+Discover:  search → show → pull
+Develop:   init → validate → submit
+```
 
-The older flat commands (`login`, `install`, `push`, `browse`, …) still work and
-print a one-line note pointing at the new form.
+Batch is built in rather than bolted on — anything that takes one name takes
+several, and paths accept globs:
+
+```bash
+buildrix skill pull skill-a skill-b skill-c
+buildrix task pull task-a task-b
+buildrix skill validate ./skills/*
+```
+
+The older commands (`skill new`, `skill check`, `skill install`, `task get`,
+`login`, `push`, …) still work.
 
 ---
 
-## Write a skill
+## Contribute a Task
 
 ```bash
-buildrix skill new chiller-plant-mpc
-# write the description, put your code in scripts/, a test in tests/
-buildrix skill check ./chiller-plant-mpc
-buildrix skill submit ./chiller-plant-mpc
+buildrix task init
 ```
 
-```
-skill-name/
-├── SKILL.md            frontmatter + the seven required sections
-├── requirements.txt    pinned dependencies
-├── scripts/            your code
-├── references/         long-form docs, loaded on demand
-├── assets/             templates, lookup tables, small data
-├── tests/              runnable checks
-└── NOTES.md            what went wrong and what fixed it
+Collects the title, domain, difficulty, estimated human effort, task familiarity
+and agentic-AI familiarity — then asks the one question that matters:
+
+> **How would you ask an AI agent to work on this task?**
+
+Write it the way you actually would. That text is stored verbatim and never
+rewritten. The hub reads it and reports the state of each of seven dimensions:
+
+| Dimension | The question it answers |
+|---|---|
+| Objective | What should the agent accomplish? |
+| Inputs & Resources | What does it receive? |
+| Detailed Instruction | How would an experienced human work through this? |
+| Environment & Access | What tools, software and compute may it use? |
+| Reproducibility | What must be fixed for results to be comparable? |
+| Deliverables | What comes back, with what file names and columns? |
+| Evaluation | How is success decided? |
+
+Each carries a state — `clear` · `needs_clarification` · `not_provided` ·
+`not_applicable` — never a score. You are asked **only** about what is unclear,
+so a detailed request can go straight to final review and a vague one takes
+several rounds. Every question, answer and revision is kept.
+
+Two separations the format depends on:
+
+- **The Detailed Instruction is not the prompt.** It is a required Task artifact
+  and it is deliberately excluded from the canonical prompt, because the
+  benchmark runs `Task` and `Task + Detailed Instruction` as separate conditions.
+- **Reproducibility is not the solution method.** A model or a window length you
+  name is only a Task condition when the comparison would be unfair without it.
+  Otherwise it belongs in the Detailed Instruction and the agent stays free to
+  choose. When it is ambiguous, you are asked.
+
+See [`spec/03-TASK_FORMAT.md`](spec/03-TASK_FORMAT.md) and
+[`examples/testcases/`](examples/testcases/).
+
+---
+
+## Contribute a Skill
+
+```bash
+buildrix skill init                 # from scratch, guided
+buildrix skill submit ./my-skill    # import an existing folder, then guided
+buildrix skill validate ./my-skill
 ```
 
-A Buildrix skill is a valid Agent Skill **first**. Everything Buildrix needs on
-top of the open standard lives inside the frontmatter's `metadata:` block, which
-hosts ignore, so nothing here stops the folder working elsewhere:
+### The package
+
+```
+my-skill/
+├── skill.yaml       Buildrix metadata and technical requirements
+├── SKILL.md         the agent-facing Skill itself
+├── scripts/         optional — code the agent runs
+├── references/      optional — long-form docs, loaded on demand
+├── examples/        optional — worked examples
+├── assets/          optional — templates, lookup tables, small data
+└── tests/           optional — runnable checks
+```
+
+Only `skill.yaml` and `SKILL.md` are required. A Skill may be pure instruction,
+or may carry knowledge, workflows, scripts, tools, models, references, decision
+logic, validation procedures and error recovery.
+
+Metadata lives in exactly one place each, so nothing can drift:
 
 ```yaml
+# SKILL.md frontmatter — the open Agent Skills standard, all a host reads
 ---
-name: chiller-plant-mpc
+name: load-forecasting
 description: >-
-  Fits a grey-box thermal model of a chiller plant from operating data, then
-  solves a day-ahead setpoint schedule under a price signal. Use when a task
-  involves plant-level optimisation, MPC, or shifting cooling load in time.
+  Fits and evaluates short-horizon building load forecasts from meter and
+  weather data. Use when a user asks to forecast building electricity demand
+  or benchmark a load-prediction model.
 license: Apache-2.0
-
-metadata:
-  buildrix_schema: "skill/2.0"
-  version: "0.1.0"
-  domain: operations-control
-  requires: {python: ">=3.11,<3.14", packages: ["cvxpy==1.5.3"]}
-  network: []                 # every host you contact; [] means offline
-  determinism: deterministic  # checked, not taken on trust
 ---
 ```
 
-`buildrix skill check` enforces eight rules: structure, frontmatter, a
-description that says *when* to use the skill, the seven required sections, a
-5,000-token body budget, no absolute paths or secrets, a 25 MB cap, and tests
-that pass. With `--determinism` it runs the tests twice and compares.
+```yaml
+# skill.yaml — everything Buildrix-specific, and nowhere else
+schema: skill/2.0
+name: load-forecasting
+version: 1.2.0
+domain: forecasting-analytics
+determinism: seeded
+requires:
+  python: ">=3.11,<3.14"
+  packages: ["pandas==2.2.2"]
+  external_tools: []
+  gpu: false
+network: []
+```
 
-Then the hub's reviewer reads the prose — the description and the limits, because
-those decide whether an agent finds the skill and whether it misuses it.
+`name` is the one field in both, and validation fails if they disagree. A legacy
+package with Buildrix fields under frontmatter `metadata:` is still read
+correctly; submitting through Buildrix writes the canonical `skill.yaml`.
+
+### SKILL.md
+
+```markdown
+## Purpose                            what capability this gives an agent
+## When to Use                        the phrases a user would actually type
+## Workflow                           numbered steps, each with its command
+## Decision Guidance                  the judgement calls, with thresholds
+## Validation                         how the agent checks its own result
+## Common Failure Modes / Recovery    what breaks, and what to do
+## Included Resources                 the bundled files, by relative path
+```
+
+The first three are required. `When to Use` is the highest-leverage section:
+most Skills fail because an agent never loads them.
+
+### The reusability check
+
+The hub judges whether a Skill is genuinely reusable or is one Task's answer
+written out longhand. A `hardcoded_answer` verdict — an expected output value, a
+reference file's contents, a conclusion that could only come from having solved
+a specific Task — **blocks submission**. A Skill carrying an answer key would
+make the benchmark meaningless.
+
+See [`spec/02-SKILL_FORMAT.md`](spec/02-SKILL_FORMAT.md) and
+[`examples/skills/`](examples/skills/).
 
 ---
 
-## Write a task
+## Benchmark
 
 ```bash
-buildrix task new ahu-fdd-fortnight
-# write prompt.md, put your own answer in grader/reference/
-buildrix task check ./ahu-fdd-fortnight
-buildrix task submit ./ahu-fdd-fortnight
+buildrix benchmark match --skill ./my-skill
+buildrix benchmark run --skill ./my-skill --task BXT-000012 BXT-000041 \
+  --agent 'claude -p "$BUILDRIX_PROMPT"' \
+  --model claude-opus-5 --harness claude-code
+buildrix benchmark pull --skill my-skill
 ```
 
+### `match`
+
+Asks the hub which Tasks are worth spending compute on, weighing whether the
+Skill's workflow produces what the Task asks for, whether it can run on the
+inputs the Task supplies, and whether the environments are compatible — not tag
+overlap. Bands are `strong` · `possible` · `weak`, each with a reason.
+
+The website's Skill page calls the same service, so the ranking is identical.
+
+### `run`
+
+Four conditions per Task instance, each in its own clean workspace:
+
+| Condition | What the agent has |
+|---|---|
+| Agent | The canonical Task prompt and nothing else. The control. |
+| + Detailed Instruction | Plus the contributor's procedure. |
+| + Skill | Plus the Skill package. |
+| + Instruction + Skill | Both. |
+
+Held identical: the same agent and model, the same Task and instance, the same
+environment and inputs, the same reproducibility settings, the same compute and
+time limits. The only declared difference is which of the Skill and the Detailed
+Instruction was staged. Nothing crosses between conditions — not files, caches,
+context, memory, outputs, or skill-written state.
+
+Live progress, then the result:
+
 ```
-task-name/
-├── PUBLIC  — goes to every runner
-│   ├── TASK.yaml           the contract
-│   ├── prompt.md           the only text the agent reads
-│   ├── inputs/             what the agent starts with
-│   ├── env/requirements.txt
-│   ├── collect.py          workspace -> submission bundle
-│   └── provenance.md
-└── PRIVATE — stays on the server
-    └── grader/
-        ├── grade.py        grade(bundle, reference) -> {"overall": ...}
-        ├── reference/      your own answer
-        └── mutations/      three wrong-but-plausible answers
+Benchmark complete
+
+Agent                        52
++ Detailed Instruction       68
++ Skill                      81
++ Instruction + Skill        85
+
+Instruction Lift             +16
+Skill Lift                   +29
+Combined Lift                +33
 ```
 
-A task is a contract, not a description. Two rules make that mechanical:
+Each Task keeps its own evaluator and native metric. The **lift** between
+conditions is what compares across Tasks. A negative lift is a real result and
+is reported as one.
 
-- **Every check carries a phrase copied from `prompt.md`, word for word.** If the
-  phrase is not in the prompt, the task does not publish. You cannot grade what
-  you did not ask for.
-- **Anything you tell the agent to do that no check covers gets flagged**, so
-  either add a check or cut the sentence.
+### How a run is graded
 
-`buildrix task check` runs the gates against your own files:
+Grading happens **on the hub**, because that is the only place the reference
+answer exists. The runner ships the artifacts the agent produced — with a
+readable slice of each text file, so a header or a summary travels but a 4 GB
+simulation directory does not — and the hub decides what they are worth, in two
+layers:
 
+1. **Mechanical facts.** Does each declared deliverable exist, is it non-empty,
+   does the CSV carry the columns the Task asked for? Computed, not judged, and
+   handed to the grader as findings so it never guesses at a file listing.
+2. **Judgement.** Everything a file listing cannot settle: correctness against
+   the reference, the Task's own success criteria, and whether the fixed
+   reproducibility conditions were respected.
+
+The judgement is a language model, with the ways an LLM judge goes wrong closed
+off in code, not just asked for in the prompt:
+
+- **Self-report is not evidence.** An agent writing "CVRMSE was 11%" proves
+  nothing; a criterion supported only by the submission's own prose is capped.
+- **Missing is zero.** A deliverable the mechanical layer found absent cannot be
+  argued upwards.
+- **Every score quotes what it scored.** One that does not is capped as
+  unsupported.
+- **Calibrated anchors.** 0.0 / 0.25 / 0.5 / 0.75 / 1.0 are defined in words, so
+  "good" means the same thing across Tasks and across runs.
+- **Blind to the condition.** The grader is never told whether the Skill or the
+  Detailed Instruction was present — knowing which arm it is scoring is the
+  fastest way to manufacture the lift the benchmark exists to measure.
+
+With no model configured the hub falls back to the contract check alone and says
+plainly that it cannot tell a correct answer from a well-formatted wrong one.
+`GET /api/benchmark/grader` reports which grader a hub is using.
+
+`--agent` is the command that runs your agent; the prompt arrives as
+`$BUILDRIX_PROMPT` and as `PROMPT.md` in the working directory. Without
+`--agent` the run is a dry run: it exercises isolation, evaluation and upload,
+produces no work, and is recorded privately so it cannot be mistaken for a
+measurement.
+
+### Integrity
+
+- **Runs upload automatically** when execution finishes. There is deliberately
+  no `benchmark submit` — a contributor who could choose which runs to send
+  would send the flattering ones.
+- **No partial groups.** A submission missing any condition is rejected whole;
+  partial acceptance is itself a selection bias.
+- **Scores are recomputed on the hub** from the per-run evidence.
+- **A single-use nonce** is issued before the run, so a result cannot be minted
+  after the fact or replayed.
+- **Full provenance** is recorded: Task and version, Skill version and digest,
+  model, harness, environment fingerprint, condition, run config, evaluator
+  version, outputs and metrics.
+- **Hidden Task assets stay hidden.** A pulled Task has no evaluation criteria,
+  no reference outputs and no Detailed Instruction.
+
+See [`spec/04-EVALUATION_PROTOCOL.md`](spec/04-EVALUATION_PROTOCOL.md).
+
+---
+
+## The official Buildrix Skill
+
+One Skill teaches an agent to use all of the above — searching, authoring,
+validating, submitting, matching and benchmarking — by driving this CLI rather
+than reimplementing anything.
+
+```bash
+cp -r skills/buildrix ~/.claude/skills/
+buildrix auth login
 ```
-  schema .................... pass   CONTROLS
-  prompt .................... pass   45 words
-  deliverables .............. pass   2 file(s)
-  anchors ................... pass   3/3 found
-  prompt coverage ........... pass
-  gold (G3) ................. pass   1.00
-  floor (G4) ................ pass   0.00
-  discrimination (G5) ....... pass   3 case(s) fail as intended
-  repeatable (G6) ........... pass
 
-  verdict: ready to submit
+Then work in words:
+
+> "Find existing CFD tasks on Buildrix."
+> "Help me turn this project into a Buildrix Task."
+> "Turn my load forecasting workflow into a Buildrix Skill."
+> "Validate and submit this Skill."
+> "Find tasks compatible with this Skill and benchmark it."
+
+Source: [`skills/buildrix/`](skills/buildrix/), with references for the
+[Task format](skills/buildrix/references/task-format.md),
+[Skill format](skills/buildrix/references/skill-format.md),
+[benchmark](skills/buildrix/references/benchmark.md) and
+[CLI](skills/buildrix/references/cli.md).
+
+---
+
+## Repository
+
+| Path | What is in it |
+|---|---|
+| `buildrix/` | The CLI and package |
+| `skills/buildrix/` | The official Buildrix Skill |
+| `examples/skills/` | Example Skills to copy from |
+| `examples/testcases/` | An example Task |
+| `templates/` | Scaffolding used by `skill new` / `task new` |
+| `spec/` | The format contracts and the evaluation protocol |
+
+```bash
+pip install -e ".[dev]"
+python -m pytest
 ```
-
-G3 to G6 are the interesting ones. Your own answer has to score exactly 1.00, an
-empty folder has to score 0.00, each wrong-but-plausible case you supplied has to
-score below the pass mark, and grading the same folder twice has to give the same
-number. G5 is the one that matters most: it proves the grader can tell a good
-answer from a plausible bad one.
-
-**There is no difficulty field.** Difficulty is the measured pass rate of an
-agent working with no skills at all, over at least twenty trials on two model
-setups, written back by the server with its confidence interval and trial count.
 
 ---
 
 ## Domains
 
-Eight, closed, the same in the CLI, the server and the site:
+Eight, closed. A Task uses one of them; a Skill may also use `general` for
+cross-cutting tooling.
 
-| id | Domain |
-|---|---|
-| `performance-modeling` | Building Performance Modeling & Simulation |
-| `design-retrofit` | Design, Retrofit & Decarbonization |
-| `operations-control` | Building Operations, Control & Optimization |
-| `fdd-commissioning` | Fault Detection, Diagnostics & Commissioning |
-| `occupants-comfort` | Occupants, Comfort & Indoor Environmental Quality |
-| `forecasting-analytics` | Energy Forecasting & Performance Analytics |
-| `grid-integrated` | Grid-Interactive & Integrated Energy Systems |
-| `data-semantics-twins` | Building Data, Semantics & Digital Twins |
+`performance-modeling` · `design-retrofit` · `operations-control` ·
+`fdd-commissioning` · `occupants-comfort` · `forecasting-analytics` ·
+`grid-integrated` · `data-semantics-twins`
 
-Plus `general` for cross-cutting tooling — a skill may use it, a task may not.
-`buildrix domains` prints the list; `--task` shows only the eight.
-
----
-
-## The benchmark
-
-Heavy compute runs on your machine. The server only grades.
-
-```
-YOUR MACHINE                                    SERVER
-fetch the public task pack + a run token  --->  token issued, pack served
-build the pinned environment
-run arm A: agent, no skills        ) paired,
-run arm B: agent, with skills      ) randomised order
-collect.py -> bundle under 50 MB
-sign the manifest, upload                 --->  verify, load the hidden grader,
-                                                score in seconds, store the run
+```bash
+buildrix domains --task
 ```
 
-`buildrix bench` is not in this release. When it lands, one command runs both
-arms — there is no flag for running only the treatment, and a run without its
-control arm is refused on upload. Fairness is enforced by making the honest path
-the only path.
-
-Results are reported as the gap in pass rate with McNemar's exact test on paired
-per-task outcomes, normalised gain, cost per task, and the count of tasks that
-got **worse** with skills.
+See [`spec/01-TAXONOMY.md`](spec/01-TAXONOMY.md).
 
 ---
 
-## Specification
+## Licence
 
-The full written spec — skill format, task format, the run protocol, the review
-loop, the domain taxonomy — lives alongside this repo in `spec/`:
-
-| File | Covers |
-|---|---|
-| `00-OVERVIEW.md` | The four artifacts and the prior art we borrow from |
-| `01-TAXONOMY.md` | The eight domains |
-| `02-SKILL_FORMAT.md` | `skill/2.0` |
-| `03-TASK_FORMAT.md` | `task/2.0` and the nine gates |
-| `04-EVALUATION_PROTOCOL.md` | Local runner, thin server, paired isolation |
-| `05-INTAKE_REVIEW.md` | The three submission routes and the reviewer |
-| `06-SITE_IA.md` | The hub's structure |
-
----
-
-## Prior art
-
-**Agents' Last Exam** ([arXiv:2606.05405](https://arxiv.org/abs/2606.05405)) —
-executable tasks from real professional work, hidden references, scripted
-grading. Their finding that most agent failures come from missing domain
-knowledge rather than broken tool use is the reason Buildrix exists.
-
-**SkillsBench** ([arXiv:2602.12670](https://arxiv.org/abs/2602.12670)) — the
-paired design, and the finding that skills help by wildly different amounts by
-domain and sometimes make things worse. Both are reported here as first-class
-results.
-
----
-
-Apache-2.0.
+Apache-2.0. Contributed Tasks and Skills carry their own licence, defaulting to
+CC-BY-4.0 for Tasks and Apache-2.0 for Skills. Submissions and their revision
+history are retained and may be used in aggregate for research on the benchmark.

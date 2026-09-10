@@ -51,6 +51,19 @@ def main():
     p_skill = sub.add_parser("skill", help="Work with skills")
     sk = p_skill.add_subparsers(dest="verb")
 
+    q = sk.add_parser("show", help="Show one or more skills in full")
+    q.add_argument("refs", nargs="+", metavar="SKILL")
+
+    q = sk.add_parser("init", help="Author a skill interactively (same workflow as the site)")
+    q.add_argument("--resume", default="", help="Continue an existing draft")
+
+    q = sk.add_parser("validate", help="Validate skill package(s) against the canonical rules")
+    q.add_argument("paths", nargs="+")
+    q.add_argument("--no-tests", action="store_true")
+
+    q = sk.add_parser("archive", help="Archive your own skill draft")
+    q.add_argument("refs", nargs="+", metavar="DRAFT")
+
     q = sk.add_parser("new", help="Scaffold a new skill")
     q.add_argument("name")
     q.add_argument("--dir", default=".", help="Parent directory")
@@ -113,6 +126,32 @@ def main():
     p_task = sub.add_parser("task", help="Work with benchmark tasks")
     tk = p_task.add_subparsers(dest="verb")
 
+    # -- discover: search -> show -> pull ---------------------------------
+    q = tk.add_parser("search", help="Search the hub for tasks")
+    q.add_argument("query", nargs="?", default="")
+    q.add_argument("--domain", default="")
+    q.add_argument("--difficulty", default="")
+    q.add_argument("--limit", type=int, default=50)
+
+    q = tk.add_parser("show", help="Show one or more tasks in full")
+    q.add_argument("refs", nargs="+", metavar="TASK")
+
+    q = tk.add_parser("pull", help="Download a task's public package")
+    q.add_argument("refs", nargs="+", metavar="TASK")
+    q.add_argument("--dir", default=".")
+    q.add_argument("--extract", action="store_true")
+
+    # -- develop: init -> validate -> submit -------------------------------
+    q = tk.add_parser("init", help="Define a task interactively (same workflow as the site)")
+    q.add_argument("--resume", default="", help="Continue an existing draft")
+
+    q = tk.add_parser("validate", help="Run every task gate locally")
+    q.add_argument("paths", nargs="+")
+    q.add_argument("--no-grader", action="store_true")
+
+    q = tk.add_parser("archive", help="Archive your own task draft")
+    q.add_argument("refs", nargs="+", metavar="DRAFT")
+
     q = tk.add_parser("new", help="Scaffold a new task")
     q.add_argument("name")
     q.add_argument("--dir", default=".", help="Parent directory")
@@ -122,7 +161,8 @@ def main():
     q.add_argument("--no-grader", action="store_true",
                    help="Skip running your grader against the reference")
 
-    q = tk.add_parser("submit", help="Upload a task and print the review")
+    q = tk.add_parser("submit", help="Submit a task through the guided workflow")
+    q.add_argument("--resume", default="")
     q.add_argument("path", nargs="?", default=".")
     q.add_argument("--force", action="store_true",
                    help="Upload even if the local gates found blockers")
@@ -139,7 +179,32 @@ def main():
     q.add_argument("--search", default="")
 
     # == bench ==============================================================
-    p_bench = sub.add_parser("bench", help="Run the paired benchmark")
+    p_bm = sub.add_parser("benchmark", help="Match, run and read benchmarks")
+    bm = p_bm.add_subparsers(dest="verb")
+
+    q = bm.add_parser("match", help="Find tasks worth benchmarking a skill against")
+    q.add_argument("--skill", required=True, help="A local skill folder, or a published name")
+    q.add_argument("--domain", default="", help="Restrict candidate tasks")
+    q.add_argument("--limit", type=int, default=10)
+
+    q = bm.add_parser("run", help="Run all four conditions and upload the result")
+    q.add_argument("--skill", default="", help="Local skill folder or archive")
+    q.add_argument("--task", nargs="+", default=[], metavar="TASK")
+    q.add_argument("--agent", default="",
+                   help="Command that runs your agent; gets $BUILDRIX_PROMPT")
+    q.add_argument("--model", default="unspecified")
+    q.add_argument("--harness", default="")
+    q.add_argument("--timeout", type=int, default=1800)
+    q.add_argument("--visibility", default="public", choices=["public", "private"])
+
+    q = bm.add_parser("pull", help="Read benchmark results")
+    q.add_argument("--skill", default="")
+    q.add_argument("--task", default="")
+    q.add_argument("--model", default="")
+    q.add_argument("--limit", type=int, default=50)
+    q.add_argument("--json", action="store_true")
+
+    p_bench = sub.add_parser("bench", help="(old name for `benchmark`)")
     bn = p_bench.add_subparsers(dest="verb")
 
     q = bn.add_parser("run", help="Run both arms of a suite on this machine")
@@ -197,6 +262,7 @@ def main():
     nouns = {
         "skill": (p_skill, SKILL_VERBS),
         "task": (p_task, TASK_VERBS),
+        "benchmark": (p_bm, BENCHMARK_VERBS),
         "bench": (p_bench, BENCH_VERBS),
         "auth": (p_auth, AUTH_VERBS),
     }
@@ -817,6 +883,14 @@ def cmd_domains(args):
     print()
 
 
+def _cli_version() -> str:
+    try:
+        import buildrix
+        return f"{buildrix.__version__} ({buildrix.__stage__})"
+    except Exception:
+        return "unknown"
+
+
 def cmd_info(args):
     from buildrix.config import get_hub_url, get_user, SKILLS_DIR
     from buildrix.skill_manager import installed_skills
@@ -831,6 +905,21 @@ def cmd_info(args):
     print(f"  User:      {user['name'] if user else 'not logged in'}")
     print(f"  Skills:    {SKILLS_DIR}")
     print(f"  Installed: {len(installed_skills())} skills")
+
+    try:
+        from buildrix.hub_api import BuildrixAPI
+        api = BuildrixAPI()
+        health = api.health()
+        stage = health.get("stage", "")
+        print(f"  Version:   buildrix {_cli_version()}"
+              + (f"  |  hub {health.get('version', '?')}"
+                 + (f" ({stage})" if stage else "") if health else ""))
+        grader = api.benchmark_grader().get("llm", {})
+        print(f"  Grader:    {grader.get('label', 'unknown')}")
+        if grader.get("note"):
+            print(f"             {grader['note'][:96]}")
+    except Exception:
+        pass
 
     try:
         from buildrix.hub_client import HubClient
@@ -1118,10 +1207,20 @@ def cmd_bench(args) -> int:
 #  dispatch tables
 # ==========================================================================
 
+from buildrix.commands import BENCHMARK_V2, SKILL_V2, TASK_V2  # noqa: E402
+
 SKILL_VERBS = {
+    # v2 — discover, then develop. These drive the hub's shared workflow.
+    "search": SKILL_V2["search"],
+    "show":   SKILL_V2["show"],
+    "pull":   SKILL_V2["pull"],
+    "init":   SKILL_V2["init"],
+    "validate": SKILL_V2["validate"],
+    "submit": SKILL_V2["submit"],
+    "archive": SKILL_V2["archive"],
+    # kept: local scaffolding and the installed-skill manager
     "new": cmd_skill_new,
     "check": cmd_skill_check,
-    "submit": cmd_skill_submit,
     "status": cmd_skill_status,
     "install": cmd_install,
     "pull": cmd_pull,
@@ -1129,18 +1228,30 @@ SKILL_VERBS = {
     "dev": cmd_dev,
     "remove": cmd_uninstall,
     "list": cmd_list,
-    "search": cmd_search,
     "browse": cmd_browse,
     "delete": cmd_delete,
 }
 
 TASK_VERBS = {
+    "search":   TASK_V2["search"],
+    "show":     TASK_V2["show"],
+    "pull":     TASK_V2["pull"],
+    "init":     TASK_V2["init"],
+    "validate": TASK_V2["validate"],
+    "submit":   TASK_V2["submit"],
+    "archive":  TASK_V2["archive"],
+    # kept
     "new": cmd_task_new,
     "check": cmd_task_check,
-    "submit": cmd_task_submit,
     "status": cmd_task_status,
     "get": cmd_task_get,
     "list": cmd_task_list,
+}
+
+BENCHMARK_VERBS = {
+    "match": BENCHMARK_V2["match"],
+    "run":   BENCHMARK_V2["run"],
+    "pull":  BENCHMARK_V2["pull"],
 }
 
 BENCH_VERBS = {v: cmd_bench for v in ("run", "submit", "status", "list")}

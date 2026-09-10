@@ -107,9 +107,9 @@ Per suite, per model-harness configuration:
   t-test over two independent groups is the wrong statistic and reviewers will say so.
 - **Normalised gain** `Δ / (1 − baseline)` — how much of the available headroom the
   skills actually captured. Comparable across domains with different baselines.
-- **Negative transfer**: the count and the list of tasks where skills *hurt*. SkillsBench
-  found this on 16 of 84 tasks; it is a real phenomenon and we surface it as a headline
-  number rather than burying it.
+- **Negative transfer**: the count and the list of tasks where skills *hurt*. This is a
+  real and reproducible phenomenon, and we surface it as a headline number rather than
+  burying it.
 - **Cost**: tokens, wall-clock and estimated $ per task, both arms. A skill that adds
   6 points of pass rate for 3× the tokens is a different product from one that adds 6
   points for free.
