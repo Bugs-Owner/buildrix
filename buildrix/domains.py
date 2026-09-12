@@ -12,13 +12,13 @@ from __future__ import annotations
 
 # (id, label, short label used on radar axes)
 DOMAINS: list[tuple[str, str, str]] = [
-    ("performance-modeling",   "Building Performance Modeling & Simulation",        "MODELING"),
+    ("performance-modeling",   "Building Performance Simulation",        "MODELING"),
     ("design-retrofit",        "Design, Retrofit & Decarbonization",                "RETROFIT"),
-    ("operations-control",     "Building Operations, Control & Optimization",       "CONTROLS"),
-    ("fdd-commissioning",      "Fault Detection, Diagnostics & Commissioning",      "FDD"),
-    ("occupants-comfort",      "Occupants, Comfort & Indoor Environmental Quality", "COMFORT"),
+    ("operations-control",     "Building Control & Optimization",       "CONTROLS"),
+    ("fdd-commissioning",      "FDD & Commissioning",      "FDD"),
+    ("occupants-comfort",      "Occupants, Comfort & IEQ", "COMFORT"),
     ("forecasting-analytics",  "Energy Forecasting & Performance Analytics",        "ANALYTICS"),
-    ("grid-integrated",        "Grid-Interactive & Integrated Energy Systems",      "GRID"),
+    ("grid-integrated",        "Grid Integrated Energy Systems",      "GRID"),
     ("data-semantics-twins",   "Building Data, Semantics & Digital Twins",          "DATA"),
 ]
 
