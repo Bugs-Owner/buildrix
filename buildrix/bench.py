@@ -471,16 +471,16 @@ def _prompt_for(condition: str, task: dict, instance: str,
                 detailed_instruction: str, skill_name: str) -> str:
     """The natural-language input for one condition.
 
-    The canonical prompt is identical in all four. What changes is the pointer
-    to the extra material staged on disk — never the Task itself, or the
-    conditions would not be comparable.
+    Instruction conditions use the stored, integrated task revision. Older
+    tasks without one retain their original file-based instruction behavior.
     """
-    parts = [task.get("canonical_prompt") or ""]
+    integrated = task.get("instruction_prompt") if "instruction" in condition else ""
+    parts = [integrated or task.get("canonical_prompt") or ""]
     if instance:
         parts.append(f"Run this task for instance: {instance}.")
     parts.append("Your working directory is the task workspace. Write every "
                  "deliverable under outputs/.")
-    if "instruction" in condition and detailed_instruction:
+    if "instruction" in condition and detailed_instruction and not integrated:
         parts.append("A detailed procedure written by an experienced engineer is "
                      "in DETAILED_INSTRUCTION.md. Read it before you start.")
     if "skill" in condition and skill_name:

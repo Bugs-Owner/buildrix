@@ -1,82 +1,46 @@
-# Skill format
+# Skill contribution
 
-A Buildrix Skill is **a valid Agent Skill first**. It must work unchanged when
-dropped into `~/.claude/skills/`, a Codex skills directory, or any other host
-that follows the open Agent Skills convention.
+Use the local-interaction protocol in SKILL.md; add the active
+`--journal SESSION.jsonl` to all draft commands with a draft ID below.
 
-## Layout
+Read `buildrix skill draft meta` for current options and file roles.
+Collect name, concise description, domain, version, license, human effort,
+complexity, task familiarity and AI-agent familiarity. Use `draft create`
+or `draft patch` with JSON. Uploads into an existing draft retain its About
+fields, matching the website.
 
-```
-my-skill/
-├── skill.yaml       Buildrix metadata and technical requirements
-├── SKILL.md         the agent-facing Skill itself
-├── scripts/         optional — code the agent runs
-├── references/      optional — long-form docs, loaded on demand
-├── examples/        optional — worked examples
-├── assets/          optional — templates, lookup tables, small data
-└── tests/           optional — runnable checks
-```
+Author SKILL.md with when to use the method, inputs, steps, decision points,
+outputs and checks. Reference supporting files by their real relative paths.
+Include only files the method needs.
 
-Nothing is required beyond `skill.yaml` and `SKILL.md`. A Skill may be pure
-instruction, or may ship scripts, models, references, decision logic, validation
-procedures and error recovery. Keep the format light: very different
-building-engineering Skills have to fit in it.
-
-## Where metadata lives
-
-Exactly one place each, so nothing can drift:
-
-- **SKILL.md frontmatter** — only the open Agent Skills fields: `name`,
-  `description`, `license`, optionally `allowed-tools`. This is all a
-  non-Buildrix host reads.
-- **skill.yaml** — everything Buildrix-specific: `schema`, `version`, `domain`,
-  `tags`, `authors`, `determinism`, `requires` (python, packages,
-  external_tools, gpu), `network`, `provenance`.
-
-`name` is the one field in both, and validation fails if they disagree.
-
-A legacy package with Buildrix fields under frontmatter `metadata:` and no
-`skill.yaml` is still read; submitting through Buildrix writes the canonical
-`skill.yaml`.
-
-## SKILL.md sections
-
-In this order. The first three are required.
-
-```markdown
-## Purpose                            what capability this gives an agent
-## When to Use                        the phrases a user would actually type
-## Workflow                           numbered steps, each with its command
-## Decision Guidance                  the judgement calls, with thresholds
-## Validation                         how the agent checks its own result
-## Common Failure Modes / Recovery    what breaks, and what to do
-## Included Resources                 the bundled files, by relative path
+```sh
+buildrix skill draft package DRAFT_ID --file ./skill-folder
+buildrix skill draft review DRAFT_ID
 ```
 
-`When to Use` is the highest-leverage section. Most Skills fail because an agent
-never loads them, and vague trigger wording is why.
+The folder must contain SKILL.md. A zip is also accepted. Replacing a package
+replaces its draft files and invalidates the previous review. Instruction
+versions remain in the private log.
 
-## What validation enforces
+For the file-by-file workflow:
 
-- `name` is kebab-case and matches between the two files
-- `description` exists and says both what it does and when to use it
-- `domain` is one of the eight, or `general`
-- the three required sections are present
-- SKILL.md is under ~5000 tokens — longer material goes to `references/`
-- no credentials anywhere; no absolute paths (use `{skill_dir}`)
-- the package is under 25 MB
-- referenced bundled files actually exist
+```sh
+buildrix skill draft instructions DRAFT_ID --text-file SKILL.md
+buildrix skill draft upload DRAFT_ID --file helper.py --data role.json
+buildrix skill draft review DRAFT_ID
+```
 
-## The reusability check
+Use `{"kind":"script"}` in role.json for scripts/. Get other roles from meta.
+Upload the full folder for nested paths. `draft requirements ID --data
+requirements.json` sets Python/packages/external_tools/network/gpu metadata.
 
-The hub also judges whether the Skill is *reusable* or is one Task's answer
-written out longhand:
+Relay specific feedback; revise the actual files and review again. Do not
+replace the contributor's method just to pass a section checklist.
 
-- `reusable` — would work on the next case unchanged
-- `task_specific` — sound method, written for exactly one building or dataset;
-  a warning, not a blocker
-- `hardcoded_answer` — contains what looks like a benchmark result, an expected
-  output value, or a conclusion that could only come from having solved a
-  specific Task. **This blocks submission.**
+`draft download ID --out candidate.zip` downloads the draft package to a new
+file. `buildrix skill validate candidate.zip` runs package checks; LLM review
+is still required.
 
-The fix is always to generalise the content, never to reword around the check.
+`buildrix skill revise SKILL_CODE --json` reopens the same contribution,
+retains the previous published package and prepares a new version. Continue
+editing and submit for fresh review.

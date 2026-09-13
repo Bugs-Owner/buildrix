@@ -46,21 +46,45 @@ from per-dimension statuses (`pass` / `concern` / `blocker`), never from a weigh
 average. Kept from v3, which got this right: an LLM cannot defend 0.6 vs 0.7, but it can
 defend "this is a blocker."
 
-**b. Per-dimension findings.** The v3 dimension set, plus three new ones the task format
-now makes checkable:
+**b. Per-dimension findings.** The reviewer judges *the dimensions the contributor
+filled in*, by their own ids, so every finding lands on a card they can open and
+edit. An earlier draft of this spec proposed a reviewer-specific dimension set
+(`deliverable_contract`, `anchor_coverage`, `freedom_declared`, `discrimination`);
+those questions all survive, but folded into the card they belong to rather than
+filed under names the contributor has never seen. Implemented in
+`app/services/review.py` as rubric `task.v4`.
 
-| Dimension | The question it asks |
-|---|---|
-| `is_real_task` | Is this genuine building-engineering work, not spam or a toy? |
-| `task_clarity` | Could a competent engineer start without asking a question? |
-| `deliverable_contract` | Are outputs specified to file, format, schema, unit level? |
-| `well_posed_evaluation` | Are thresholds grounded in reference data or a reproducible protocol? |
-| `freedom_declared` | **NEW** — is every choice that moves the number either free or pinned? |
-| `anchor_coverage` | **NEW** — does every graded thing appear in the prompt, and vice versa? |
-| `discrimination` | **NEW** — would the rubric fail a plausible wrong answer? |
-| `inputs_sufficient` | Can the task be done from what is provided? |
-| `domain_value` | Does passing it demonstrate real expertise? |
-| `scope_honesty_safety` | No unauthorised data, no fabricated references |
+| Dimension | The question it asks | |
+|---|---|---|
+| `is_real_task` | Is this genuine building-engineering work, not spam or a toy? | **gate** |
+| `objective` | Could a competent engineer start without asking a question? | **core** |
+| `inputs_resources` | Can the task be done from what is provided or reachably named? | |
+| `detailed_instruction` | Is there real procedural knowledge here, or a restatement of the objective? | |
+| `environment_access` | Are the tools, compute and network — and what is prohibited — stated? | |
+| `reproducibility` | Is every condition that moves the number either fixed or explicitly free? | |
+| `deliverables` | Are outputs specified to file, format, column, unit level? | **core** |
+| `evaluation` | Is the bar grounded, and would it fail a plausible wrong answer? | **core** |
+| `prompt_integrity` | Does the canonical prompt leak the procedure or the answer key — and does it ask for everything that will be graded? | **core** |
+| `scope_safety` | No unauthorised data, no fabricated references, no unsafe guidance | |
+
+The three "new" questions land like this: *freedom declared* is what
+`reproducibility` asks; *anchor coverage* and the procedure-leak check are what
+`prompt_integrity` asks; *discrimination* is the second half of `evaluation`.
+
+`prompt_integrity` is the one that could not be asked before, and it is the one
+this format needs most. Buildrix benchmarks four arms — `Task`,
+`Task + Detailed Instruction`, `Task + Skill`, `Task + Detailed Instruction + Skill`.
+A canonical prompt that carries the expert's workflow collapses the first two
+into one, and the run measures nothing. That failure is invisible from inside any
+single dimension, because every dimension can be individually excellent while the
+compiled prompt is wrong.
+
+The Skill rubric (`skill.v4`) is built the same way: the eight Skill cards, plus
+`is_real_skill` as the gate, `scope_safety`, and **`reusability`** — is this a
+capability, or one Task's answer written out longhand? A Skill carrying a
+benchmark's answer key does not measure a capability; it measures whether the
+answer was smuggled in. Core: `purpose`, `when_to_use`, `workflow`,
+`reusability`.
 
 **c. Concrete fixes.** 1–3 per non-passing dimension, each naming the exact offending
 text and the specific repair. Not *"clarify the period"* but *"'recent weather' does not
@@ -81,6 +105,15 @@ is instructed to check *whether each earlier finding was actually addressed*, an
 raise new cosmetic issues once structural ones are resolved — otherwise reviewers
 ratchet and contributors quit. Concretely: a dimension that passed in round *n* cannot
 regress to `concern` in round *n+1* unless the relevant text changed.
+
+That last rule is enforced **in code, not in the prompt** (`review._no_ratchet`).
+The previous round is stored as a `reviewed` event carrying both the statuses and
+the exact text that was judged; if a card passed and its text is byte-identical,
+the status is restored whatever the model says this time. An instruction the model
+may or may not follow is not a guarantee, and this is the rule contributors would
+notice being broken. The cross-cutting dimensions are exempt — `prompt_integrity`
+has no single body of text to diff, and the prompt is recompiled from seven
+dimensions, so it can genuinely regress when any one of them changes.
 
 ### Stage 4 — gates the model cannot talk its way past
 
@@ -179,6 +212,36 @@ $ buildrix task submit ./ahu-fdd
 ```
 
 ## The revision corpus
+
+### Local assistance and the original task request
+
+The Buildrix skill captures the human's initial task description before showing
+criteria, examples or suggested wording. `POST /api/tasks/drafts/{id}/initial-input`
+stores that text verbatim without an LLM call or review-round increment. Later
+`PUT /request` requests review of the clarified description while retaining the
+original. Prior assistance is recorded as unassisted, assisted or unknown, as
+reported by the client; the hub cannot verify all activity in a local harness.
+
+Task and skill agents use a private JSONL journal. Each visible contribution
+message has an immutable ID, local sequence, speaker, purpose, text, timestamp
+and optional reply-to reference. The CLI saves each message before automatically
+posting it to `/api/{tasks|skills}/drafts/{id}/local-interactions`. Retry reuses
+the same IDs, so lost acknowledgments cannot create extra interactions. Queued
+messages must sync before a subsequent hub review or submission. This history
+sync does not require an extra permission prompt within the contribution workflow.
+
+Source sessions record interface, Buildrix skill use/version, harness and model
+when known. The private event log also records the interface for web/CLI draft
+actions. Local messages remain distinct from the existing hub review ledger;
+the log summary counts local clarification-question messages, answered question
+messages and hub feedback events separately. Absent local instrumentation is
+unknown, not zero. Raw local exchanges and provenance are visible only to the
+contributor and administrators, never public catalog viewers.
+Only visible contribution exchanges are collected, not unrelated chats or
+hidden reasoning. See the maintained
+[skill logging protocol](../skills/buildrix/references/local-interactions.md).
+
+### Retained revisions
 
 Every round is retained: the text, the diff, the verdict, the per-dimension statuses,
 the elapsed time, and whether a proposed rewrite was accepted. This gives Buildrix

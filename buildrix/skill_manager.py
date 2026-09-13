@@ -46,15 +46,24 @@ def install_skill(name_or_id: str, hub_url: str = "") -> Path:
 
     client = HubClient(hub_url=hub_url)
 
-    skills = client.list_skills(search=name_or_id)
+    reference = name_or_id.lstrip('#')
+    skills = client.list_skills(search=reference)
     if not skills:
         raise ValueError(f"Skill '{name_or_id}' not found on the hub.")
 
-    skill = skills[0]
+    exact = [s for s in skills if reference in (s['id'], s.get('skill_code'), s['name'])]
+    matches = exact or skills
+    if len(matches) != 1:
+        choices = ', '.join(s.get('skill_code') or s['id'] for s in matches)
+        raise ValueError(f"Multiple skills match '{reference}'. Install by ID: {choices}")
+    skill = matches[0]
     skill_id = skill["id"]
     skill_name = skill["name"]
 
-    dest = SKILLS_DIR / skill_name
+    install_name = f"{skill_name}--{skill.get('skill_code') or skill_id}"
+    dest = SKILLS_DIR / install_name
+    if dest.resolve().parent != SKILLS_DIR.resolve():
+        raise ValueError('The skill has an invalid installation name.')
     if dest.exists():
         shutil.rmtree(dest)
 
@@ -63,7 +72,7 @@ def install_skill(name_or_id: str, hub_url: str = "") -> Path:
     print(f"  Installed to {dest}")
 
     # Symlink to Claude Code skills directory
-    _link_to_claude(skill_name, dest)
+    _link_to_claude(install_name, dest)
 
     # Auto-provision toolchain from config.yaml
     provision_toolchain(dest)

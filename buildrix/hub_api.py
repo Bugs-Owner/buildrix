@@ -43,7 +43,9 @@ class BuildrixAPI:
 
     @property
     def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        headers["X-Buildrix-Context"] = json.dumps(getattr(self, "client_context", {"interface": "cli"}), ensure_ascii=True)
+        return headers
 
     def _url(self, path: str) -> str:
         return f"{self.hub_url}/api{path}"
@@ -140,14 +142,14 @@ class BuildrixAPI:
 
     def task_draft_request(self, draft_id: str, text: str) -> dict:
         return self.post(f"/tasks/drafts/{draft_id}/request",
-                         json_body={"text": text}, timeout=180)
+                         json_body={"text": text}, timeout=300)
 
     def task_draft_answers(self, draft_id: str, answers: list[dict]) -> dict:
         return self.post(f"/tasks/drafts/{draft_id}/answers",
-                         json_body={"answers": answers}, timeout=180)
+                         json_body={"answers": answers}, timeout=300)
 
     def task_draft_dimension(self, draft_id: str, dim: str, body: dict) -> dict:
-        return self.put(f"/tasks/drafts/{draft_id}/dimensions/{dim}", json_body=body)
+        return self.put(f"/tasks/drafts/{draft_id}/dimensions/{dim}", json_body=body, timeout=300)
 
     def task_draft_proposal(self, draft_id: str, dim: str, pid: str,
                             decision: str, text: str = "") -> dict:
@@ -156,19 +158,29 @@ class BuildrixAPI:
             json_body={"decision": decision, "text": text})
 
     def task_draft_asset(self, draft_id: str, path: Path, dimension: str,
-                         kind: str, description: str = "") -> dict:
+                         kind: str, description: str = "", usage: str = "") -> dict:
         with open(path, "rb") as fh:
             return self.post(
                 f"/tasks/drafts/{draft_id}/assets",
                 files={"file": (path.name, fh)},
                 data={"dimension": dimension, "kind": kind,
-                      "description": description})
+                      "description": description, "usage": usage})
+
+    def task_draft_link(self, draft_id: str, body: dict) -> dict:
+        return self.post(f"/tasks/drafts/{draft_id}/asset-links", json_body=body)
+
+    def task_draft_description(self, draft_id: str, text: str) -> dict:
+        return self.put(f"/tasks/drafts/{draft_id}/request", json_body={"text": text}, timeout=300)
+
+    def revise(self, kind: str, ref: str) -> dict:
+        from urllib.parse import quote
+        return self.post(f"/{kind}s/{quote(ref, safe='')}/revise")
 
     def task_draft_instance(self, draft_id: str, body: dict) -> dict:
         return self.post(f"/tasks/drafts/{draft_id}/instances", json_body=body)
 
     def task_draft_finalize(self, draft_id: str) -> dict:
-        return self.post(f"/tasks/drafts/{draft_id}/finalize", timeout=180)
+        return self.post(f"/tasks/drafts/{draft_id}/finalize", timeout=300)
 
     def task_draft_prompt(self, draft_id: str, prompt: str) -> dict:
         return self.put(f"/tasks/drafts/{draft_id}/canonical-prompt",
@@ -177,7 +189,7 @@ class BuildrixAPI:
     def task_draft_submit(self, draft_id: str, consent: bool = True) -> dict:
         return self.post(f"/tasks/drafts/{draft_id}/submit",
                          json_body={"auto_review": True, "consent": consent},
-                         timeout=180)
+                         timeout=300)
 
     def task_draft_log(self, draft_id: str) -> dict:
         return self.get(f"/tasks/drafts/{draft_id}/log")
@@ -213,10 +225,14 @@ class BuildrixAPI:
             return self.post("/skills/validate",
                              files={"file": (path.name, fh)}, timeout=120)
 
-    def skill_import(self, path: Path) -> dict:
+    def skill_import(self, path: Path, draft_id: str = "") -> dict:
         with open(path, "rb") as fh:
             return self.post("/skills/import",
-                             files={"file": (path.name, fh)}, timeout=180)
+                             files={"file": (path.name, fh)},
+                             params={"draft_id": draft_id} if draft_id else None, timeout=300)
+
+    def skill_draft_review_package(self, draft_id: str) -> dict:
+        return self.post(f"/skills/drafts/{draft_id}/review-package", timeout=300)
 
     def skill_draft_create(self, body: dict) -> dict:
         return self.post("/skills/drafts", json_body=body)
@@ -232,11 +248,11 @@ class BuildrixAPI:
 
     def skill_draft_describe(self, draft_id: str, text: str) -> dict:
         return self.post(f"/skills/drafts/{draft_id}/describe",
-                         json_body={"text": text}, timeout=180)
+                         json_body={"text": text}, timeout=300)
 
     def skill_draft_answers(self, draft_id: str, answers: list[dict]) -> dict:
         return self.post(f"/skills/drafts/{draft_id}/answers",
-                         json_body={"answers": answers}, timeout=180)
+                         json_body={"answers": answers}, timeout=300)
 
     def skill_draft_dimension(self, draft_id: str, dim: str, body: dict) -> dict:
         return self.put(f"/skills/drafts/{draft_id}/dimensions/{dim}",
@@ -259,7 +275,7 @@ class BuildrixAPI:
                              data={"kind": kind, "description": description})
 
     def skill_draft_finalize(self, draft_id: str) -> dict:
-        return self.post(f"/skills/drafts/{draft_id}/finalize", timeout=180)
+        return self.post(f"/skills/drafts/{draft_id}/finalize", timeout=300)
 
     def skill_draft_md(self, draft_id: str, body: str) -> dict:
         return self.put(f"/skills/drafts/{draft_id}/skill-md",
@@ -271,7 +287,7 @@ class BuildrixAPI:
     def skill_draft_submit(self, draft_id: str, consent: bool = True) -> dict:
         return self.post(f"/skills/drafts/{draft_id}/submit",
                          json_body={"auto_review": True, "consent": consent},
-                         timeout=180)
+                         timeout=300)
 
     def skill_draft_log(self, draft_id: str) -> dict:
         return self.get(f"/skills/drafts/{draft_id}/log")
@@ -282,7 +298,7 @@ class BuildrixAPI:
     # ── Benchmark ─────────────────────────────────────────────────────────
 
     def benchmark_match(self, body: dict) -> dict:
-        return self.post("/benchmark/match", json_body=body, timeout=180)
+        return self.post("/benchmark/match", json_body=body, timeout=300)
 
     def benchmark_grade(self, body: dict) -> dict:
         return self.post("/benchmark/grade", json_body=body, timeout=300)
@@ -298,7 +314,7 @@ class BuildrixAPI:
                          json_body={"skill_ref": skill_ref, "task_refs": task_refs})
 
     def benchmark_submit(self, group: dict) -> dict:
-        return self.post("/benchmark/runs", json_body=group, timeout=180)
+        return self.post("/benchmark/runs", json_body=group, timeout=300)
 
     def benchmark_results(self, skill: str = "", task: str = "",
                           model: str = "", limit: int = 50) -> dict:

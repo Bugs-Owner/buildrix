@@ -41,6 +41,9 @@ from pathlib import Path
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and not stream.isatty():
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
         prog="buildrix",
         description="Buildrix - open skill framework and benchmark for building science AI agents",
@@ -74,7 +77,8 @@ def main():
     q.add_argument("--determinism", action="store_true",
                    help="Run the tests twice and compare the output")
 
-    q = sk.add_parser("submit", help="Upload a skill and print the review")
+    q = sk.add_parser("submit", help="Prepare and submit a skill through the shared review")
+    q.add_argument("--resume", default="")
     q.add_argument("path", nargs="?", default=".")
     q.add_argument("--force", action="store_true",
                    help="Upload even if the local checks found blockers")
@@ -110,8 +114,9 @@ def main():
     sk.add_parser("list", help="List installed skills")
 
     q = sk.add_parser("search", help="Search the hub for skills")
-    q.add_argument("query")
+    q.add_argument("query", nargs="?", default="")
     q.add_argument("--domain", default="")
+    q.add_argument("--limit", type=int, default=50)
 
     q = sk.add_parser("browse", help="List skills on the hub")
     q.add_argument("--domain", default="")
@@ -177,6 +182,9 @@ def main():
     q = tk.add_parser("list", help="List tasks on the hub")
     q.add_argument("--domain", default="")
     q.add_argument("--search", default="")
+
+    from buildrix.contribution_commands import add_commands
+    add_commands(sk, tk)
 
     # == bench ==============================================================
     p_bm = sub.add_parser("benchmark", help="Match, run and read benchmarks")
@@ -268,6 +276,9 @@ def main():
     }
 
     try:
+        if getattr(args, "workflow_command", False):
+            from buildrix.contribution_commands import command
+            sys.exit(command(args))
         if args.noun in nouns:
             group, table = nouns[args.noun]
             verb = getattr(args, "verb", None)
@@ -478,7 +489,7 @@ def cmd_install(args):
             print(f"  No skills {scope}{extra}.")
             return
 
-        names = [s["name"] for s in skills]
+        names = [s.get("skill_code") or s["id"] for s in skills]
         print(f"  Installing {len(names)} skill(s)...\n")
     else:
         if not args.names:
@@ -708,10 +719,11 @@ def _push_one(path: Path, client, user: dict, update: bool) -> bool:
 
         # Warn about invalid domain
         from buildrix.config import VALID_DOMAINS
-        skill_domain = meta.get("metadata", {}).get("domain", "general")
+        skill_domain = meta.get("metadata", {}).get("domain", "")
         if skill_domain not in VALID_DOMAINS:
             print(f"  !  Domain '{skill_domain}' is not a recognized hub category.")
             print(f"    Valid: {', '.join(VALID_DOMAINS)}")
+            return False
 
         existing = client.get_skill_by_name(skill_name)
 
@@ -1176,8 +1188,6 @@ def cmd_domains_v2(args) -> int:
     print()
     print(f"  Valid domains for a {kind}:\n")
     print(dm.listing(kind))
-    if kind == "skill":
-        print("\n  `general` is for cross-cutting tooling. A task cannot use it.")
     print()
     return 0
 

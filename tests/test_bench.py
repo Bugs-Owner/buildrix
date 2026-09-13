@@ -133,6 +133,17 @@ def test_the_control_prompt_never_mentions_the_extras():
     assert "SECRET" not in text
 
 
+def test_integrated_instruction_prompt_replaces_the_base_only_for_instruction_conditions():
+    task = {**TASK, "instruction_prompt": "Plot supply air against setpoint, then identify and rank AHU-3 faults."}
+    for condition in bench.CONDITIONS:
+        prompt = bench._prompt_for(condition, task, "library", task["detailed_instruction"], "ahu-fdd-helper")
+        assert (task["instruction_prompt"] in prompt) == ("instruction" in condition)
+        assert (task["canonical_prompt"] in prompt) == ("instruction" not in condition)
+        assert "DETAILED_INSTRUCTION.md" not in prompt
+        assert "library" in prompt
+        assert ("skills/ahu-fdd-helper/" in prompt) == ("skill" in condition)
+
+
 def test_the_skill_and_instruction_are_pointed_at_not_pasted_in():
     text = bench._prompt_for("task_instruction_skill", TASK, "",
                              TASK["detailed_instruction"], "ahu-fdd-helper")

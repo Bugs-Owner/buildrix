@@ -143,7 +143,7 @@ class HubClient:
             data={
                 "name": meta.get("name", skill_dir.name),
                 "description": meta.get("description", ""),
-                "domain": meta.get("metadata", {}).get("domain", "general"),
+                "domain": meta.get("metadata", {}).get("domain", ""),
                 "version": meta.get("metadata", {}).get("version", "0.1.0"),
                 "tags": ",".join(meta.get("metadata", {}).get("tags", [])),
             },
@@ -174,7 +174,7 @@ class HubClient:
             data={
                 "name": meta.get("name", skill_dir.name),
                 "description": meta.get("description", ""),
-                "domain": meta.get("metadata", {}).get("domain", "general"),
+                "domain": meta.get("metadata", {}).get("domain", ""),
                 "version": meta.get("metadata", {}).get("version", "0.1.0"),
                 "tags": ",".join(meta.get("metadata", {}).get("tags", [])),
             },
@@ -276,7 +276,7 @@ class HubClient:
                 "name": meta.get("name", tc_dir.name),
                 "description": meta.get("description", ""),
                 "instructions": meta.get("task", {}).get("prompt", ""),
-                "domain": meta.get("domain", "general"),
+                "domain": meta.get("domain", ""),
                 "difficulty": meta.get("difficulty", "medium"),
                 "tags": ",".join(meta.get("tags", [])),
                 "methodology_notes": json.dumps(meta.get("environment", {})),

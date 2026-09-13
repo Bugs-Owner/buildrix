@@ -1,12 +1,4 @@
-"""The canonical Buildrix domain taxonomy.
-
-This is the ONLY place the domain list exists in the package. The hub serves the
-same list at ``GET /api/domains`` and the website reads it from there, so all
-three stay in step.
-
-Eight benchmark domains, plus ``general`` for cross-cutting tooling. A skill may
-use ``general``; a task may not - every task belongs to one of the eight.
-"""
+"""The eight application domains shared by Buildrix skills and tasks."""
 
 from __future__ import annotations
 
@@ -22,16 +14,14 @@ DOMAINS: list[tuple[str, str, str]] = [
     ("data-semantics-twins",   "Building Data, Semantics & Digital Twins",          "DATA"),
 ]
 
-GENERAL = ("general", "General tooling", "GENERAL")
-
-#: Valid domains for a skill (the eight, plus ``general``).
-SKILL_DOMAINS: list[str] = [d[0] for d in DOMAINS] + [GENERAL[0]]
+#: Valid domains for a skill (the eight application domains).
+SKILL_DOMAINS: list[str] = [d[0] for d in DOMAINS]
 
 #: Valid domains for a task (the eight only).
 TASK_DOMAINS: list[str] = [d[0] for d in DOMAINS]
 
-LABELS: dict[str, str] = {d[0]: d[1] for d in DOMAINS} | {GENERAL[0]: GENERAL[1]}
-SHORT: dict[str, str] = {d[0]: d[2] for d in DOMAINS} | {GENERAL[0]: GENERAL[2]}
+LABELS: dict[str, str] = {d[0]: d[1] for d in DOMAINS}
+SHORT: dict[str, str] = {d[0]: d[2] for d in DOMAINS}
 
 # Domain ids retired in the v2 taxonomy, mapped to their closest replacement.
 # Kept so an old skill or task still resolves instead of failing outright.

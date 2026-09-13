@@ -107,8 +107,7 @@ def task_search(args) -> int:
         code = r.get("task_code") or r.get("id", "")
         print(f"  {C.cyan(code):<22} {r.get('name', '')}")
         print(f"  {'':<14} {C.dim(r.get('domain', ''))} · "
-              f"{C.dim(r.get('difficulty', ''))} · "
-              f"{C.dim(r.get('strength', ''))}")
+              f"{C.dim(r.get('difficulty', ''))}")
         desc = (r.get("description") or "").replace("\n", " ")
         if desc:
             para(C.dim(desc[:150]), indent="                 ")
@@ -130,13 +129,12 @@ def task_show(args) -> int:
         rule(t.get("task_code") or ref)
         print(f"  {C.bold(t.get('name', ''))}")
         print(f"  {C.dim(t.get('domain', ''))} · {C.dim(t.get('difficulty', ''))}"
-              f" · {C.dim(t.get('strength', ''))}"
               f" · by {C.dim(t.get('author_name', 'unknown'))}")
         if t.get("estimated_effort"):
             print(f"  {C.dim('expert effort: ' + t['estimated_effort'].replace('_', ' '))}")
 
         print()
-        para(C.bold("Prompt the agent receives"))
+        para(C.bold("Revised task"))
         para(t.get("canonical_prompt") or "(none)", indent="    ")
 
         dims = (t.get("structured_task") or {}).get("dimensions") or {}
@@ -151,10 +149,7 @@ def task_show(args) -> int:
                 body = (rec.get("content") or "").replace("\n", " ")
                 if body:
                     print(f"    {C.cyan(title)}")
-                    para(C.dim(body[:220]), indent="      ")
-        if t.get("withheld_reason"):
-            print()
-            para(C.dim(t["withheld_reason"]), indent="    ")
+                    para(C.dim(body), indent="      ")
         if t.get("instances"):
             print()
             para(C.bold(f"Instances ({len(t['instances'])})"))
@@ -211,32 +206,12 @@ def task_validate(args) -> int:
 
 
 def task_submit(args) -> int:
-    """Submit a local task folder through the shared workflow.
-
-    A folder submitted here goes through the same definition as `task init`:
-    the hub reads it, states each dimension, and asks about whatever is
-    missing. There is no path that skips the workflow.
-    """
-    from buildrix.config import get_token
-    if not get_token():
-        return _need_login()
-    print()
-    para("Task submission runs through the guided definition, so a Task built "
-         "in a terminal and one built in a browser are the same Task.")
-    para(C.dim("Starting the workflow. Your folder's prompt.md, if there is one, "
-               "is offered as the initial agent request."))
-    seed = ""
-    for path in _expand(args.paths):
-        candidate = path / "prompt.md"
-        if candidate.is_file():
-            seed = candidate.read_text(encoding="utf-8", errors="replace").strip()
-            print(C.dim(f"\n  Read {candidate}."))
-            break
-    from buildrix.interactive import run_task_init
+    from buildrix.contribution_wizard import run
     try:
-        run_task_init(_api(), resume=getattr(args, "resume", "") or "")
-    except ApiError as e:
-        return _fail(str(e))
+        run(_api(), "task", resume=getattr(args, "resume", "") or "",
+            seed_path=getattr(args, "path", "") or "")
+    except (ApiError, OSError, ValueError) as error:
+        return _fail(str(error))
     return 0
 
 
@@ -262,7 +237,7 @@ def skill_search(args) -> int:
     api = _api()
     try:
         rows = api.skill_search(query=getattr(args, "query", "") or "",
-                                domain=args.domain, limit=args.limit)
+                                domain=args.domain, limit=getattr(args, "limit", 50))
     except ApiError as e:
         return _fail(str(e))
     if not rows:
@@ -270,13 +245,13 @@ def skill_search(args) -> int:
         return 0
     print()
     for s in rows:
-        print(f"  {C.cyan(s.get('name', '')):<34} {C.dim(s.get('domain', ''))}")
+        print(f"  {C.cyan(s.get('skill_code') or s.get('id', ''))}  {s.get('name', '')}  {C.dim(s.get('domain', ''))}")
         para(C.dim((s.get("description") or "")[:150]), indent="    ")
         print(f"    {C.dim('v' + str(s.get('version', '')))} · "
               f"{C.dim(str(s.get('download_count', 0)) + ' downloads')} · "
               f"{C.dim(s.get('status', ''))}")
         print()
-    print(f"  {len(rows)} skill(s). {C.dim('buildrix skill show <name>')}\n")
+    print(f"  {len(rows)} skill(s). {C.dim('buildrix skill show <code>')}\n")
     return 0
 
 
@@ -293,10 +268,10 @@ def skill_show(args) -> int:
         para(s.get("description", ""))
         print(f"\n  {C.dim(s.get('domain', ''))} · v{s.get('version', '')} · "
               f"{C.dim(s.get('status', ''))} · by {C.dim(s.get('author_name', ''))}")
-        md = s.get("skill_md_content") or ""
+        md = s.get("display_skill_md") or s.get("skill_md_content") or ""
         if md:
             print()
-            para(C.dim(md[:1200]), indent="    ")
+            para(C.dim(md), indent="    ")
         try:
             summary = api.benchmark_skill_summary(s.get("name", ref)).get("summary")
             if summary and summary.get("groups"):
@@ -313,6 +288,11 @@ def skill_show(args) -> int:
 
 
 def skill_pull(args) -> int:
+    if not hasattr(args, "refs"):
+        args.refs = getattr(args, "names", [])
+        if not args.refs or getattr(args, "pull_all", False) or getattr(args, "mine", False):
+            from buildrix.cli import cmd_pull
+            return cmd_pull(args) or 0
     api = _api()
     dest_dir = Path(args.dir)
     code = 0
@@ -323,7 +303,8 @@ def skill_pull(args) -> int:
         except ApiError as e:
             code = _fail(f"{ref}: {e}")
             continue
-        out = _write_bytes(dest_dir / f"{s['name']}.zip", data, args.extract)
+        identity = s.get("skill_code") or s["id"]
+        out = _write_bytes(dest_dir / identity / f"{s['name']}.zip", data, args.extract)
         print(f"  {C.green('pulled')} {s['name']} → {out}")
     print()
     return code
@@ -407,65 +388,13 @@ def _local_skill_check(path: Path, args) -> int:
 
 
 def skill_submit(args) -> int:
-    """Submit skill packages through the shared authoring workflow.
-
-    An existing folder is imported into a draft rather than uploaded blind: the
-    sections it already has come back resolved, whatever is missing gets asked
-    about, and the reusability check still runs. That is what keeps a package
-    from GitHub identical in standard to one authored in a browser.
-    """
-    from buildrix.config import get_token
-    if not get_token():
-        return _need_login()
-    api = _api()
-    code = 0
-    for path in _expand(args.paths):
-        if not path.exists():
-            code = _fail(f"{path} does not exist.")
-            continue
-        rule(path.name)
-        try:
-            if path.is_dir():
-                blob = _zip_folder(path)
-                tmp = Path(path.parent / f".{path.name}.buildrix.zip")
-                tmp.write_bytes(blob)
-                try:
-                    draft = api.skill_import(tmp)
-                finally:
-                    tmp.unlink(missing_ok=True)
-            else:
-                draft = api.skill_import(path)
-        except ApiError as e:
-            code = _fail(str(e))
-            continue
-
-        report = draft.get("import_report") or {}
-        for b in report.get("blockers") or []:
-            print(f"  {C.red('blocker')}  {b}")
-        for c in report.get("concerns") or []:
-            print(f"  {C.amber('concern')}  {c}")
-        print(f"\n  Imported as draft {C.cyan(draft['skill_code'])}.")
-
-        if draft.get("complete") and not (draft.get("validation") or {}).get("blocking"):
-            if confirm("  submit it now", True):
-                try:
-                    result = api.skill_draft_submit(draft["id"])
-                    print(C.green(f"\n  {result.get('skill_code')} submitted "
-                                  f"as {result.get('name')}."))
-                    _print_review(result)
-                except ApiError as e:
-                    code = _fail(str(e))
-                continue
-
-        print()
-        para("The package needs a few things filled in before it can be "
-             "submitted. Continuing in the guided workflow.")
-        from buildrix.interactive import run_skill_init
-        try:
-            run_skill_init(api, resume=draft["id"])
-        except ApiError as e:
-            code = _fail(str(e))
-    return code
+    from buildrix.contribution_wizard import run
+    try:
+        run(_api(), "skill", resume=getattr(args, "resume", "") or "",
+            seed_path="" if getattr(args, "resume", "") else getattr(args, "path", "."))
+    except (ApiError, OSError, ValueError) as error:
+        return _fail(str(error))
+    return 0
 
 
 def _print_review(result: dict) -> None:

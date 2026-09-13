@@ -103,7 +103,7 @@ def check_skill(path: str | Path, *, run_tests: bool = True,
         if not dom:
             problems.append("`metadata.domain` is missing")
         elif not domains.is_valid(dom, kind="skill"):
-            problems.append(f"`metadata.domain` '{dom}' is not one of the eight (or general)")
+            problems.append(f"`metadata.domain` '{dom}' is not one of the eight application domains")
         det = str(meta.get("determinism") or "")
         if det and det not in spec.DETERMINISM_VALUES:
             problems.append("`metadata.determinism` must be "

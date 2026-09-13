@@ -62,8 +62,8 @@ buildrix auth login --register
 
 ```
 buildrix
-├── task       search · show · pull · init · validate · submit · archive
-├── skill      search · show · pull · init · validate · submit · archive
+├── task       search · show · pull · develop · submit · revise · drafts · history · withdraw
+├── skill      search · show · pull · develop · submit · revise · drafts · history · withdraw
 ├── benchmark  match · run · pull
 └── auth · domains · info · env · config
 ```
@@ -72,7 +72,7 @@ Two motions, and they mean the same thing for a Task and for a Skill:
 
 ```
 Discover:  search → show → pull
-Develop:   init → validate → submit
+Develop:   develop → review → submit → revise
 ```
 
 Batch is built in rather than bolted on — anything that takes one name takes
@@ -89,133 +89,87 @@ The older commands (`skill new`, `skill check`, `skill install`, `task get`,
 
 ---
 
-## Contribute a Task
+## Contribute a task or skill
 
-```bash
-buildrix task init
+Use the terminal wizard, or resume a draft started on the website:
+
+```sh
+buildrix task develop
+buildrix skill develop
+buildrix task develop --resume DRAFT_ID
+buildrix skill develop --resume DRAFT_ID
 ```
 
-Collects the title, domain, difficulty, estimated human effort, task familiarity
-and agentic-AI familiarity — then asks the one question that matters:
+Both collect domain, human effort, complexity, task familiarity and AI-agent
+familiarity. Tasks collect a title; skills collect a name, description, version
+and license. The hub supplies the same choices and guidance as the website.
 
-> **How would you ask an AI agent to work on this task?**
+Describe a real task you have completed as clearly as you would hand it to a
+teammate. The task wizard shows one section at a time: Objective, Inputs &
+Resources, Detailed Instruction, Environment & Access, Reproducibility,
+Deliverables and Evaluation. You can return to earlier steps. New replies are
+reviewed and incorporated into the saved section.
 
-Write it the way you actually would. That text is stored verbatim and never
-rewritten. The hub reads it and reports the state of each of seven dimensions:
+Attach inputs and your completed output files, with descriptions of their
+contents and how to use them. Datasets need feature definitions and units.
+Environment configuration files do not need separate notes. Files above 50 MB
+can use an HTTPS shared link. Evaluation collects metrics, thresholds, weights,
+the final scoring rule, and your results for the completed outputs you attached.
 
-| Dimension | The question it answers |
-|---|---|
-| Objective | What should the agent accomplish? |
-| Inputs & Resources | What does it receive? |
-| Detailed Instruction | How would an experienced human work through this? |
-| Environment & Access | What tools, software and compute may it use? |
-| Reproducibility | What must be fixed for results to be comparable? |
-| Deliverables | What comes back, with what file names and columns? |
-| Evaluation | How is success decided? |
+Skills use your actual SKILL.md and supporting files. Write the instructions or
+upload a folder, request LLM feedback, and revise the files. You can also start
+with `buildrix skill submit ./my-skill`. SKILL.md is required; the hub builds
+Buildrix metadata from About the skill, and accepts existing skill.yaml metadata
+when importing a package. Supporting files retain their relative paths.
 
-Each carries a state — `clear` · `needs_clarification` · `not_provided` ·
-`not_applicable` — never a score. You are asked **only** about what is unclear,
-so a detailed request can go straight to final review and a vague one takes
-several rounds. Every question, answer and revision is kept.
+### Revisions and history
 
-Two separations the format depends on:
-
-- **The Detailed Instruction is not the prompt.** It is a required Task artifact
-  and it is deliberately excluded from the canonical prompt, because the
-  benchmark runs `Task` and `Task + Detailed Instruction` as separate conditions.
-- **Reproducibility is not the solution method.** A model or a window length you
-  name is only a Task condition when the comparison would be unfair without it.
-  Otherwise it belongs in the Detailed Instruction and the agent stays free to
-  choose. When it is ambiguous, you are asked.
-
-See [`spec/03-TASK_FORMAT.md`](spec/03-TASK_FORMAT.md) and
-[`examples/testcases/`](examples/testcases/).
-
----
-
-## Contribute a Skill
-
-```bash
-buildrix skill init                 # from scratch, guided
-buildrix skill submit ./my-skill    # import an existing folder, then guided
-buildrix skill validate ./my-skill
+```sh
+buildrix task drafts
+buildrix skill drafts
+buildrix task revise TASK_CODE
+buildrix skill revise SKILL_CODE
+buildrix task history DRAFT_ID
+buildrix skill history DRAFT_ID
 ```
 
-### The package
+Revising reopens the contribution under the same ID. The current publication
+and its files stay intact while you edit. Resubmission creates a new version
+and runs LLM review again. Prior versions and original inputs are retained.
 
-```
-my-skill/
-├── skill.yaml       Buildrix metadata and technical requirements
-├── SKILL.md         the agent-facing Skill itself
-├── scripts/         optional — code the agent runs
-├── references/      optional — long-form docs, loaded on demand
-├── examples/        optional — worked examples
-├── assets/          optional — templates, lookup tables, small data
-└── tests/           optional — runnable checks
-```
+Raw input history is available to the contributor and administrators.
+Published descriptions use separate, lightly edited display text. Unfinished
+contributions can be withdrawn with `buildrix KIND withdraw DRAFT_ID`;
+their logs remain. An in-progress revision can be left saved to resume later.
 
-Only `skill.yaml` and `SKILL.md` are required. A Skill may be pure instruction,
-or may carry knowledge, workflows, scripts, tools, models, references, decision
-logic, validation procedures and error recovery.
+### Agent conversations and automation
 
-Metadata lives in exactly one place each, so nothing can drift:
+The JSON command interface uses the same draft endpoints, without an interactive
+terminal. Read `buildrix KIND draft meta` for current choices and
+`buildrix KIND draft --help` for actions.
 
-```yaml
-# SKILL.md frontmatter — the open Agent Skills standard, all a host reads
----
-name: load-forecasting
-description: >-
-  Fits and evaluates short-horizon building load forecasts from meter and
-  weather data. Use when a user asks to forecast building electricity demand
-  or benchmark a load-prediction model.
-license: Apache-2.0
----
+```sh
+buildrix task draft create --data about.json
+buildrix task draft describe DRAFT_ID --text-file human-request.txt
+buildrix task draft answer DRAFT_ID --dimension objective --text-file reply.txt
+buildrix task draft get DRAFT_ID
+buildrix task draft finalize DRAFT_ID
+buildrix task draft submit DRAFT_ID --consent
+
+buildrix skill draft create --data about.json
+buildrix skill draft package DRAFT_ID --file ./my-skill
+buildrix skill draft review DRAFT_ID
+buildrix skill draft submit DRAFT_ID --consent
 ```
 
-```yaml
-# skill.yaml — everything Buildrix-specific, and nowhere else
-schema: skill/2.0
-name: load-forecasting
-version: 1.2.0
-domain: forecasting-analytics
-determinism: seeded
-requires:
-  python: ">=3.11,<3.14"
-  packages: ["pandas==2.2.2"]
-  external_tools: []
-  gpu: false
-network: []
-```
+Use UTF-8 files to preserve the contributor's actual words. Resolve returned
+questions and validation blockers before submitting. `--consent` records
+agreement to retaining the contribution history and aggregate research use.
+Use `revise CODE --json` to reopen a submitted contribution without a wizard.
 
-`name` is the one field in both, and validation fails if they disagree. A legacy
-package with Buildrix fields under frontmatter `metadata:` is still read
-correctly; submitting through Buildrix writes the canonical `skill.yaml`.
-
-### SKILL.md
-
-```markdown
-## Purpose                            what capability this gives an agent
-## When to Use                        the phrases a user would actually type
-## Workflow                           numbered steps, each with its command
-## Decision Guidance                  the judgement calls, with thresholds
-## Validation                         how the agent checks its own result
-## Common Failure Modes / Recovery    what breaks, and what to do
-## Included Resources                 the bundled files, by relative path
-```
-
-The first three are required. `When to Use` is the highest-leverage section:
-most Skills fail because an agent never loads them.
-
-### The reusability check
-
-The hub judges whether a Skill is genuinely reusable or is one Task's answer
-written out longhand. A `hardcoded_answer` verdict — an expected output value, a
-reference file's contents, a conclusion that could only come from having solved
-a specific Task — **blocks submission**. A Skill carrying an answer key would
-make the benchmark meaningless.
-
-See [`spec/02-SKILL_FORMAT.md`](spec/02-SKILL_FORMAT.md) and
-[`examples/skills/`](examples/skills/).
+See the [complete contribution command reference](skills/buildrix/references/cli.md),
+[task guide](skills/buildrix/references/task-format.md) and
+[skill guide](skills/buildrix/references/skill-format.md).
 
 ---
 
@@ -336,9 +290,16 @@ See [`spec/04-EVALUATION_PROTOCOL.md`](spec/04-EVALUATION_PROTOCOL.md).
 
 ## The official Buildrix Skill
 
-One Skill teaches an agent to use all of the above — searching, authoring,
-validating, submitting, matching and benchmarking — by driving this CLI rather
-than reimplementing anything.
+The Buildrix skill guides an agent through search, download, contribution,
+review, submission and revision using the shared CLI. It preserves original
+human replies and resumes the same drafts as the website.
+
+For tasks, it first saves the contributor's exact initial description before
+showing criteria or helping revise it. It then logs local clarification
+exchanges in a durable journal and automatically syncs them to the hub's private
+history. Local exchanges and hub reviewer feedback are counted separately;
+skill version and harness provenance are recorded as client-reported metadata.
+See the [local interaction protocol](skills/buildrix/references/local-interactions.md).
 
 ```bash
 cp -r skills/buildrix ~/.claude/skills/
