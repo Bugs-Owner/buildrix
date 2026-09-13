@@ -1,1 +1,0 @@
-# Notes — heat-wave-identification

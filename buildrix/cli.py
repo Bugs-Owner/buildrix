@@ -655,7 +655,7 @@ def cmd_list(args):
     from buildrix.skill_manager import installed_skills
     skills = installed_skills()
     if not skills:
-        print("No skills installed. Try: buildrix install weather-data-extraction")
+        print("No skills installed. Find a skill with: buildrix skill search")
         return
     print(f"\n  Installed skills ({len(skills)}):\n")
     for s in skills:

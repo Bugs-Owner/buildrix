@@ -1,1 +1,0 @@
-# Notes — weather-data-extraction

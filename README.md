@@ -328,8 +328,6 @@ Source: [`skills/buildrix/`](skills/buildrix/), with references for the
 |---|---|
 | `buildrix/` | The CLI and package |
 | `skills/buildrix/` | The official Buildrix Skill |
-| `examples/skills/` | Example Skills to copy from |
-| `examples/testcases/` | An example Task |
 | `templates/` | Scaffolding used by `skill new` / `task new` |
 | `spec/` | The format contracts and the evaluation protocol |
 
@@ -356,6 +354,12 @@ buildrix domains --task
 See [`spec/01-TAXONOMY.md`](spec/01-TAXONOMY.md).
 
 ---
+
+## Contributors
+
+- **[Zixin Jiang (Bugs-Owner)](https://github.com/Bugs-Owner)** — project creator, engineering requirements, design and testing.
+- **Claude Code (Anthropic)** — AI-assisted development.
+- **Codex (OpenAI)** — AI-assisted development, contribution workflows, UI revisions and testing.
 
 ## Licence
 

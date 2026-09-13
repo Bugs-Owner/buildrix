@@ -25,4 +25,4 @@ buildrix = "buildrix.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["buildrix"]
-artifacts = ["templates/**/*", "examples/**/*", "skills/**/*"]
+artifacts = ["templates/**/*", "skills/**/*"]
