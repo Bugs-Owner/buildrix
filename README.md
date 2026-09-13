@@ -89,7 +89,7 @@ syncs with the same saved draft.
 
 - **[Zixin Jiang (Bugs-Owner)](https://github.com/Bugs-Owner)** — project creator, engineering requirements, design and testing.
 - **Claude Code (Anthropic)** — AI-assisted development.
-- **Codex (OpenAI)** — AI-assisted development, contribution workflows, UI revisions and testing.
+- **Codex (OpenAI)** — AI-assisted development.
 
 ## License
 
