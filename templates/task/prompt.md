@@ -1,13 +1,6 @@
 <!--
-This file is the only text the agent reads. It is passed word for word.
-
 Write it the way you would brief a competent engineer who has not seen the job
 before: what to do, what they have, what to hand back, and where the edges are.
-
-Two rules, both checked automatically:
-  · every requirement you grade later has to appear here, in these words
-  · anything you tell the agent to do that no check covers gets flagged, so
-    either add a check or cut the sentence
 
 Delete this comment before submitting.
 -->

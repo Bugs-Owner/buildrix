@@ -11,11 +11,9 @@ unrelated conversations, credentials or hidden reasoning, and do not scan a
 harness's global chat history. These instructions do not submit a publication
 without the user's existing authorization for that action.
 
-The hub's normal LLM review remains required. Local coaching may reduce hub
-feedback, but do not force extra reviews to match the web or assume it reduces
-total human effort. Local messages and hub feedback are recorded separately.
-Source metadata and unassisted status are client-reported, not independently
-verified. Missing instrumentation is unknown, not zero interactions.
+The hub's normal LLM review remains required. Preserve the distinction between
+human input, agent proposals and hub feedback. Record only known source metadata;
+leave uncertain values unknown.
 
 ## Start
 
@@ -65,7 +63,7 @@ This saves the immutable initial request without an LLM call. Only after
 `status: synced` may you expose guidance or help clarify. If a description was
 already provided before this workflow, use that exact message. Use
 `--assistance assisted` if the user had already received coaching, or `unknown`
-if its origin is unclear. Do not elicit a new supposedly unassisted baseline.
+if its origin is unclear. Do not replace a description that has already been given.
 For an existing draft, read its saved input and continue; never overwrite it.
 
 ## Log the local conversation as it happens
@@ -111,10 +109,6 @@ when connectivity/authentication is restored. Do not coach before the initial
 capture is acknowledged, or call a hub review/final submission while sync is
 failing. No extra approval is needed to retry the authorized history upload.
 
-The private `draft log` / `history` API includes original events, source
-sessions, local question/answer counts and hub feedback counts. It is available
-to the contributor and administrators, not public catalog viewers.
-One local clarification-question message is one counted question event; it is
-not a claimed count of every individual question inside a message. Logging is
-performed by the skill following this protocol, not by an invisible hook into
-every third-party harness.
+The private `draft log` / `history` API returns the contribution history to its
+contributor and administrators. The skill records exchanges through this protocol;
+the CLI does not automatically read a third-party harness's conversations.

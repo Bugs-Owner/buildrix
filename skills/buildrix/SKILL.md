@@ -18,8 +18,8 @@ ask the user to run `buildrix auth login`; do not collect their password.
 
 ```sh
 buildrix task search "load forecasting"
-buildrix task show TANA-0002
-buildrix task pull TANA-0002 --dir ./tasks --extract
+buildrix task show TASK_CODE
+buildrix task pull TASK_CODE --dir ./tasks --extract
 buildrix skill search "weather"
 buildrix skill show SKILL_CODE
 buildrix skill pull SKILL_CODE --dir ./skills --extract
@@ -61,7 +61,7 @@ Log that prompt and the exact human reply using the local logging protocol.
 never replace this initial input with an agent-written version.
 
 If the user already supplied their initial description, preserve that message
-instead of asking for a new baseline. If coaching or criteria were already
+instead of asking for a replacement description. If coaching or criteria were already
 given, record assistance as `assisted` (or `unknown` when uncertain); do not
 claim it was unassisted. A resumed draft keeps its existing initial request.
 
@@ -90,7 +90,7 @@ buildrix task draft answer DRAFT_ID --dimension SECTION_ID --text-file reply.txt
 Use the criteria to clarify locally first. Log each visible question, exact
 human reply, proposed revision and meaningful file edit as it happens. Keep
 agent-authored wording separate from human messages. Then send the clarified
-task for its first hub review; do not manufacture reviewer rounds.
+task for hub review and resolve the returned questions.
 
 Show the overall comment and one open section at a time. Log the feedback you
 relay, collect missing facts, and send the revised answer for review. The hub incorporates

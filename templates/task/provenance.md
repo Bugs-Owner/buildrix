@@ -1,7 +1,6 @@
 # Provenance
 
-**Where this came from.** The real job, project or study. Real work makes the
-best tasks; a puzzle invented for the benchmark usually shows.
+**Where this came from.** Describe the real job, project or study you completed.
 
 **How the reference answer was produced.** The method, the tools and their
 versions, and the date. If you cross-checked it against anything, say what and
