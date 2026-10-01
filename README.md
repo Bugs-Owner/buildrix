@@ -6,7 +6,7 @@ Use the [website](https://buildrixhub.onrender.com/), CLI or
 [Buildrix skill](skills/buildrix/SKILL.md) inside your local agent.
 Contributions use the same saved drafts and LLM review across all three.
 
-**Preview v0.5.0.** Task and skill workflows are available for testing.
+**Version 0.1.0.** Task and skill workflows are available for testing.
 Benchmarks execute locally or on compute nodes, with frozen studies, independent
 trials, retained evidence and automatic result uploads. See the
 [benchmark and cluster guide](docs/benchmark.md) for setup and trust limitations.

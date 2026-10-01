@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "buildrix"
-version = "0.5.0"
+version = "0.1.0"
 description = "Open skill framework and benchmark for building-engineering AI agents"
 requires-python = ">=3.11"
 license = "Apache-2.0"

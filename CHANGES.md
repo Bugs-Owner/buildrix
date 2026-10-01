@@ -1,6 +1,6 @@
 # Changes
 
-## 0.5.0 preview
+## 0.1.0
 
 - Shared task and skill contribution workflows across web, CLI and local agents.
 - Saved drafts, withdrawal and reviewed revisions under the same published ID.
