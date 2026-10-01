@@ -542,7 +542,35 @@ def benchmark_run(args) -> int:
         return _fail("Give at least one --task. "
                      "`buildrix benchmark match --skill <path>` suggests some.")
 
-    if args.agent:
+    if args.provider and not args.agent:
+        from buildrix import benchmark_batch as batch
+        import uuid
+        output = Path(args.output or f"benchmark-results/{uuid.uuid4().hex[:12]}").resolve()
+        manifest = {"schema": "buildrix-study/1", "trials": 1,
+            "timeout_s": args.timeout, "visibility": args.visibility,
+            "agents": [{"provider": args.provider, "model": args.model}],
+            "execution": {"backend": args.backend, "image": args.image},
+            "pairs": [{"skill": str(skill_path.resolve()) if skill_path else "", "tasks": args.task}]}
+        try:
+            output.mkdir(parents=True, exist_ok=False)
+            batch.write_json(output / "manifest.json", manifest)
+            batch.prepare(output / "manifest.json", output / "bundle", _api())
+            responses = batch.run_batch(output / "bundle", output / "results", api=_api())
+            print(f"Evidence saved to {output}. Scores are available on the hub after upload.")
+            return int(any(r.get("error") or r.get("run_errors") for r in responses))
+        except (ApiError, ValueError, OSError, KeyError, TypeError) as exc:
+            return _fail(f"{exc}. Evidence directory: {output}")
+
+    if args.agent and args.provider:
+        return _fail("Choose --provider or --agent, not both.")
+    if args.provider:
+        from buildrix.benchmark_agents import CLIAgent
+        try:
+            agent = CLIAgent(args.provider, args.model, timeout_s=args.timeout,
+                             backend=args.backend, image=args.image)
+        except ValueError as exc:
+            return _fail(str(exc))
+    elif args.agent:
         agent = CommandAgent(args.agent, timeout_s=args.timeout)
     else:
         print()
@@ -554,8 +582,8 @@ def benchmark_run(args) -> int:
 
     api = _api()
     print()
-    para(C.dim("Four conditions per Task instance, each in its own clean "
-               "workspace: Task · +Detailed Instruction · +Skill · +both. "
+    para(C.dim("Paired conditions per Task instance, each in its own clean "
+               "workspace. Task-only studies use two conditions; skills use four. "
                "Results upload automatically when the run finishes."))
     print()
 
@@ -565,17 +593,41 @@ def benchmark_run(args) -> int:
             skill_path=skill_path, skill_name=skill_name,
             skill_version=payload.get("version", ""),
             task_refs=args.task, agent=agent,
-            model=args.model, harness=args.harness,
+            model=args.model, harness=args.provider or args.harness,
             budget={"wall_clock_s": args.timeout},
-            visibility="private" if not args.agent else args.visibility,
+            visibility="private" if not (args.agent or args.provider) else args.visibility,
         )
-    except ApiError as e:
+    except (ApiError, ValueError) as e:
         return _fail(str(e))
 
     for r in responses:
         print_result(r)
     failed = [r for r in responses if r.get("error")]
-    return 1 if failed else 0
+    return 1 if failed or not responses else 0
+
+
+def benchmark_study(args) -> int:
+    from buildrix import benchmark_batch as batch
+    from buildrix.config import get_token
+    offline = getattr(args, "offline", False)
+    if not offline and not get_token():
+        return _need_login()
+    try:
+        if args.verb == "prepare":
+            study = batch.prepare(Path(args.manifest).resolve(), Path(args.output).resolve(), _api())
+            print(f"Prepared {len(study['jobs'])} jobs. Study digest: {study['digest']}")
+            print(f"Run: buildrix benchmark batch --bundle \"{args.output}\" --output results")
+            return 0
+        if args.verb == "batch":
+            responses = batch.run_batch(Path(args.bundle).resolve(), Path(args.output).resolve(),
+                api=None if offline else _api(), shard_index=args.shard_index, shard_count=args.shard_count)
+        else:
+            responses = batch.sync(Path(args.output).resolve(), _api())
+        pending = sum(bool(r.get("error")) for r in responses)
+        print(f"Processed {len(responses)} groups; {pending} upload errors. Evidence: {args.output}")
+        return 1 if pending or any(r.get("run_errors") for r in responses) else 0
+    except (ApiError, ValueError, OSError, TypeError, KeyError) as exc:
+        return _fail(str(exc))
 
 
 def benchmark_pull(args) -> int:
@@ -674,4 +726,5 @@ SKILL_V2 = {
 
 BENCHMARK_V2 = {
     "match": benchmark_match, "run": benchmark_run, "pull": benchmark_pull,
+    "prepare": benchmark_study, "batch": benchmark_study, "sync": benchmark_study,
 }

@@ -1,0 +1,27 @@
+schema: buildrix-study/1
+trials: 3
+seed: 42
+timeout_s: 1800
+visibility: public
+
+# Use native for a development smoke test with trusted packages.
+# Research: backend: docker, image: your-image@sha256:YOUR_DIGEST
+# Slurm: backend: apptainer, image: /shared/images/buildrix.sif
+execution:
+  backend: native
+
+agents:
+  - provider: codex
+    model: YOUR_OPENAI_MODEL_ID
+  - provider: claude
+    model: YOUR_ANTHROPIC_MODEL_ID
+
+pairs:
+  # Paths are relative to this manifest. Replace with your local skill.
+  - skill: ./my-skill
+    tasks: [YOUR_TASK_CODE]
+  # To freeze strong matches from the existing semantic matcher:
+  # - skill: ./another-skill
+  #   match: true
+  # Task-only study (two conditions):
+  # - tasks: [YOUR_TASK_CODE]

@@ -91,8 +91,7 @@ def test_staging_strips_the_package_root_and_refuses_traversal(tmp_path):
 
 
 def test_each_condition_produces_a_different_workspace_digest(tmp_path, skill_dir):
-    """The hub rejects a group whose conditions all hash the same — that would
-    mean they shared a directory instead of being isolated."""
+    """Different staged treatments have different content identities."""
     digests = set()
     for condition in bench.CONDITIONS:
         ws = tmp_path / condition

@@ -7,7 +7,9 @@ Use the [website](https://buildrixhub.onrender.com/), CLI or
 Contributions use the same saved drafts and LLM review across all three.
 
 **Preview v0.5.0.** Task and skill workflows are available for testing.
-Benchmark functionality is under development; its design is not finalized.
+Benchmarks execute locally or on compute nodes, with frozen studies, independent
+trials, retained evidence and automatic result uploads. See the
+[benchmark and cluster guide](docs/benchmark.md) for setup and trust limitations.
 
 ## Install and sign in
 

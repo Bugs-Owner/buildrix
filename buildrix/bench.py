@@ -1,44 +1,18 @@
-"""
-The paired benchmark runner.
-============================
+"""Shared staging, artifact collection and legacy single-group execution.
 
-Heavy work runs here, on the contributor's machine; grading and record-keeping
-happen on the hub. That split is what lets the benchmark carry EnergyPlus-years
-of compute on a small server without ever letting the reference answers leave it.
+Four skill conditions compare the task alone, with instructions, with a skill,
+and with both. Task-only studies use the first two. Content digests identify
+inputs and outputs; they do not prove isolation or honest execution.
 
-Four conditions per Task instance
----------------------------------
-    task                     Agent + Task
-    task_instruction         Agent + Task + Detailed Instruction
-    task_skill               Agent + Task + Skill
-    task_instruction_skill   Agent + Task + Detailed Instruction + Skill
-
-Everything else is held identical and *asserted* identical: same agent and
-model, same Task and instance, same environment, same inputs, same
-reproducibility settings, same budget. The only declared difference between two
-conditions is which of the Skill and the Detailed Instruction was staged.
-
-Isolation
----------
-Each condition gets its own freshly created workspace directory, populated from
-the Task package and torn down afterwards. Nothing is shared: not files, not
-caches, not the agent's context, and not skill-written state such as a NOTES.md,
-which would otherwise carry learning from one condition into the next. The
-runner hashes each workspace after the run and refuses to submit a group whose
-conditions all produced the same digest, because that would mean they were not
-isolated at all.
-
-Automatic submission
---------------------
-There is no `benchmark submit`. When the local run finishes, the group uploads.
-A contributor who could choose which runs to send would send the flattering
-ones, and a leaderboard built from self-selected results measures nothing. The
-honest path is the only path.
+The durable study runner lives in benchmark_batch.py and the built-in CLI
+adapters in benchmark_agents.py. Native sessions use fresh homes; containers
+add filesystem/process isolation. Contributor-controlled execution is unverified.
 """
 
 from __future__ import annotations
 
 import hashlib
+import base64
 import io
 import json
 import os
@@ -67,7 +41,7 @@ CONDITION_LABELS = {
     "task_instruction_skill": "+ Instruction + Skill",
 }
 
-RUNNER_VERSION = "1.0.0"
+RUNNER_VERSION = "2.0.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -151,16 +125,18 @@ def sha256_bytes(data: bytes) -> str:
 def digest_dir(path: Path) -> str:
     """A stable digest over a directory's contents.
 
-    Used to prove two conditions did not share a workspace. Paths are relative
-    and sorted so the digest depends on content, not on walk order.
+    Paths are relative and sorted, so equal content hashes equally even in
+    independent workspaces. This identifies content, not process isolation.
     """
     h = hashlib.sha256()
     for p in sorted(path.rglob("*")):
-        if p.is_dir() or _skip(p):
+        if p.is_dir() or p.is_symlink() or _skip(p) or not p.resolve().is_relative_to(path.resolve()):
             continue
         h.update(p.relative_to(path).as_posix().encode())
         try:
-            h.update(p.read_bytes())
+            with p.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    h.update(chunk)
         except OSError:
             h.update(b"<unreadable>")
     return h.hexdigest()
@@ -212,6 +188,9 @@ class AgentResult:
     tokens: int = 0
     tool_calls: int = 0
     error: str = ""
+    usage: dict = field(default_factory=dict)
+    stderr: str = ""
+    agent_version: str = ""
 
 
 class CommandAgent:
@@ -225,8 +204,8 @@ class CommandAgent:
 
     The prompt reaches the command as ``$BUILDRIX_PROMPT`` and as the file
     ``PROMPT.md`` in the workspace, so both styles of harness work. The command
-    runs with the workspace as its working directory and inherits nothing from
-    the previous condition.
+    starts a new process in the workspace, but inherits host settings and home
+    state. Use a built-in CLIAgent for fresh agent homes and container support.
     """
 
     def __init__(self, command: str, timeout_s: int = 1800):
@@ -260,7 +239,7 @@ class DryRunAgent:
     """Stands in for an agent so the pipeline can be exercised without one.
 
     It produces no deliverables, so every condition scores zero. That is the
-    point: it proves the isolation, the evaluation and the upload work, and it
+    point: it exercises staging, evaluation and upload without a model call, and it
     never pretends to be a measurement — a dry-run group is marked private.
     """
 
@@ -285,6 +264,7 @@ class Evaluation:
     criteria: dict = field(default_factory=dict)
     evidence: dict = field(default_factory=dict)
     metric_name: str = "deliverables_present"
+    receipt: str = ""
 
 
 def evaluate_workspace(workspace: Path, task: dict) -> Evaluation:
@@ -412,6 +392,7 @@ def _grade(api: BuildrixAPI, task: dict, artifacts: list[dict],
                   "_grader": out.get("grader", ""),
                   "_notes": out.get("notes", "")},
         metric_name=out.get("metric_name", "buildrix_rubric"),
+        receipt=out.get("receipt", ""),
     )
 
 
@@ -423,15 +404,19 @@ class RunPlan:
 
 
 def prepare_task(api: BuildrixAPI, ref: str) -> RunPlan:
-    task = api.task_show(ref)
-    package = api.task_package(ref)
+    snapshot = api.benchmark_task(ref)
+    task = snapshot["task"]
+    package = base64.b64decode(snapshot["package_base64"], validate=True)
+    if sha256_bytes(package) != snapshot["package_sha256"]:
+        raise ValueError("Task package digest mismatch")
     instances = [i.get("key") or i.get("label") or ""
                  for i in (task.get("instances") or [])] or [""]
     return RunPlan(task=task, package=package, instances=instances)
 
 
 def _stage(workspace: Path, package: bytes, condition: str,
-           skill_path: Optional[Path], detailed_instruction: str) -> None:
+           skill_path: Optional[Path], detailed_instruction: str,
+           skill_name: str = "") -> None:
     """Build one condition's workspace from scratch.
 
     The Task's public half always goes in. The Skill goes in only for the
@@ -442,29 +427,55 @@ def _stage(workspace: Path, package: bytes, condition: str,
         for info in z.infolist():
             if info.is_dir():
                 continue
-            parts = Path(info.filename).parts[1:]     # drop the slug folder
-            if not parts or ".." in parts:
+            parts = Path(info.filename.replace("\\", "/")).parts[1:]
+            if not parts or ".." in parts or any(":" in p for p in parts):
                 continue
+            if parts[0].lower() in {"reference", "detailed_instruction.md", "evaluation"}:
+                raise ValueError("Private assets must not be staged in a benchmark workspace")
             dest = workspace.joinpath(*parts)
+            if not dest.resolve().is_relative_to(workspace.resolve()):
+                raise ValueError("Unsafe archive path")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(z.read(info))
 
     (workspace / "outputs").mkdir(exist_ok=True)
 
     if "skill" in condition and skill_path:
-        target = workspace / "skills" / skill_path.name
+        name = skill_name or skill_path.name
+        if Path(name).name != name or name in (".", "..") or ":" in name or "\\" in name:
+            raise ValueError("Unsafe skill name")
+        target = workspace / "skills" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         if skill_path.is_dir():
+            if any(p.is_symlink() for p in skill_path.rglob("*")):
+                raise ValueError("Skill packages cannot contain symbolic links")
             shutil.copytree(skill_path, target,
                             ignore=shutil.ignore_patterns(
                                 "__pycache__", ".git", "*.pyc"))
         else:
             with zipfile.ZipFile(skill_path) as z:
-                z.extractall(target)
+                roots = [n[:-8] for n in z.namelist() if n.endswith("SKILL.md")]
+                if len(roots) != 1:
+                    raise ValueError("Skill archive must have exactly one SKILL.md")
+                for info in z.infolist():
+                    if info.is_dir() or not info.filename.startswith(roots[0]):
+                        continue
+                    rel = info.filename[len(roots[0]):].replace("\\", "/")
+                    dest = target / rel
+                    if (".." in Path(rel).parts or ":" in rel
+                            or not dest.resolve().is_relative_to(target.resolve())
+                            or (info.external_attr >> 16) & 0o170000 == 0o120000):
+                        raise ValueError("Unsafe skill archive member")
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(z.read(info))
 
     if "instruction" in condition and detailed_instruction:
         (workspace / "DETAILED_INSTRUCTION.md").write_text(
             detailed_instruction, encoding="utf-8")
+
+
+def conditions_for(skill_path: Optional[Path]) -> list[str]:
+    return CONDITIONS if skill_path else CONDITIONS[:2]
 
 
 def _prompt_for(condition: str, task: dict, instance: str,
@@ -521,7 +532,8 @@ def run_benchmark(
     if not plans:
         return []
 
-    total = sum(len(p.instances) * len(CONDITIONS) for p in plans)
+    conditions = conditions_for(skill_path)
+    total = sum(len(p.instances) * len(conditions) for p in plans)
     progress = Progress(total)
     submitted: list[dict] = []
     done = 0
@@ -534,8 +546,11 @@ def run_benchmark(
         detailed = task.get("detailed_instruction") or ""
 
         records: list[dict] = []
+        # Registration precedes execution. Failure to register must not start a
+        # paid run whose provenance cannot subsequently be submitted.
+        nonce = api.benchmark_nonce(skill_name or "", [code])["nonce"]
         for instance in plan.instances:
-            for condition in CONDITIONS:
+            for condition in conditions:
                 progress.update(task=code, instance=instance,
                                 condition=condition, done=done)
                 # A fresh directory per condition. Nothing survives the loop:
@@ -543,7 +558,7 @@ def run_benchmark(
                 workspace = Path(tempfile.mkdtemp(prefix="buildrix-run-"))
                 try:
                     _stage(workspace, plan.package, condition,
-                           skill_path, detailed)
+                           skill_path, detailed, skill_name)
                     prompt = _prompt_for(condition, task, instance,
                                          detailed, skill_name)
                     result = agent.run(workspace, prompt)
@@ -561,9 +576,9 @@ def run_benchmark(
                         "workspace_digest": digest_dir(workspace),
                         "transcript_digest": sha256_bytes(
                             result.transcript.encode("utf-8", "replace")),
-                        "artifacts": [
-                            {k: v for k, v in a.items() if k != "head"}
-                            for a in artifacts],
+                        "artifacts": artifacts,
+                        "grade_receipt": ev.receipt,
+                        "usage": result.usage,
                         "wall_clock_s": result.wall_clock_s,
                         "tokens": result.tokens,
                         "tool_calls": result.tool_calls,
@@ -597,17 +612,14 @@ def run_benchmark(
                 "os": platform.system(), "release": platform.release(),
                 "python": platform.python_version(),
             },
-            "run_config": {"budget": budget, "conditions": CONDITIONS,
+            "run_config": {"budget": budget, "conditions": conditions,
+                           "protocol": 2, "trials": 1,
                            "instances": plan.instances},
             "metric_name": metric_name,
             "visibility": visibility,
             "records": records,
         }
-        try:
-            nonce = api.benchmark_nonce(skill_name or "", [code]).get("nonce", "")
-            group["nonce"] = nonce
-        except ApiError:
-            group["nonce"] = ""
+        group["nonce"] = nonce
 
         try:
             response = api.benchmark_submit(group)
@@ -640,21 +652,28 @@ def _artifact_list(workspace: Path) -> list[dict]:
     """
     out = []
     outputs = workspace / "outputs"
-    if not outputs.is_dir():
+    if not outputs.is_dir() or outputs.is_symlink() or not outputs.resolve().is_relative_to(workspace.resolve()):
         return out
     for p in sorted(outputs.rglob("*")):
-        if not p.is_file() or _skip(p):
+        if not p.is_file() or _skip(p) or p.is_symlink() or not p.resolve().is_relative_to(outputs.resolve()):
             continue
         try:
-            data = p.read_bytes()
+            h = hashlib.sha256()
+            with p.open("rb") as stream:
+                data = stream.read(ARTIFACT_HEAD_BYTES)
+                h.update(data)
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    h.update(chunk)
         except OSError:
             continue
         head = ""
         if p.suffix.lower() in _READABLE:
             head = data[:ARTIFACT_HEAD_BYTES].decode("utf-8", errors="replace")
         out.append({"path": p.relative_to(workspace).as_posix(),
-                    "bytes": len(data), "sha256": sha256_bytes(data)[:16],
+                    "bytes": p.stat().st_size, "sha256": h.hexdigest(),
                     "head": head})
+        if len(out) == 40:
+            break
     return out[:40]
 
 

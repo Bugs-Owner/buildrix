@@ -300,6 +300,9 @@ class BuildrixAPI:
     def benchmark_match(self, body: dict) -> dict:
         return self.post("/benchmark/match", json_body=body, timeout=300)
 
+    def benchmark_task(self, ref: str) -> dict:
+        return self.get(f"/benchmark/tasks/{ref}")
+
     def benchmark_grade(self, body: dict) -> dict:
         return self.post("/benchmark/grade", json_body=body, timeout=300)
 

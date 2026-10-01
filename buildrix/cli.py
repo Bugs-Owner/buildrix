@@ -195,15 +195,32 @@ def main():
     q.add_argument("--domain", default="", help="Restrict candidate tasks")
     q.add_argument("--limit", type=int, default=10)
 
-    q = bm.add_parser("run", help="Run all four conditions and upload the result")
+    q = bm.add_parser("run", help="Run paired conditions locally and upload the result")
     q.add_argument("--skill", default="", help="Local skill folder or archive")
     q.add_argument("--task", nargs="+", default=[], metavar="TASK")
     q.add_argument("--agent", default="",
                    help="Command that runs your agent; gets $BUILDRIX_PROMPT")
+    q.add_argument("--provider", choices=["codex", "claude"], default="",
+                   help="Built-in unattended adapter with a fresh agent home")
+    q.add_argument("--backend", choices=["native", "docker", "apptainer"], default="native")
+    q.add_argument("--image", default="", help="Container image for docker/apptainer")
+    q.add_argument("--output", default="", help="Persistent evidence directory for built-in adapters")
     q.add_argument("--model", default="unspecified")
     q.add_argument("--harness", default="")
     q.add_argument("--timeout", type=int, default=1800)
     q.add_argument("--visibility", default="public", choices=["public", "private"])
+
+    q = bm.add_parser("prepare", help="Freeze a study and register its jobs before execution")
+    q.add_argument("--manifest", required=True)
+    q.add_argument("--output", required=True, help="New bundle directory")
+    q = bm.add_parser("batch", help="Execute or resume a prepared study on this machine")
+    q.add_argument("--bundle", required=True)
+    q.add_argument("--output", required=True, help="Persistent results directory")
+    q.add_argument("--offline", action="store_true", help="Defer grading/upload until sync")
+    q.add_argument("--shard-index", type=int, default=0)
+    q.add_argument("--shard-count", type=int, default=1)
+    q = bm.add_parser("sync", help="Retry all pending grading/uploads without rerunning agents")
+    q.add_argument("--output", required=True)
 
     q = bm.add_parser("pull", help="Read benchmark results")
     q.add_argument("--skill", default="")
@@ -1262,6 +1279,7 @@ BENCHMARK_VERBS = {
     "match": BENCHMARK_V2["match"],
     "run":   BENCHMARK_V2["run"],
     "pull":  BENCHMARK_V2["pull"],
+    **{verb: BENCHMARK_V2[verb] for verb in ("prepare", "batch", "sync")},
 }
 
 BENCH_VERBS = {v: cmd_bench for v in ("run", "submit", "status", "list")}

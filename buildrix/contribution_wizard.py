@@ -83,7 +83,7 @@ def file_notes(kind):
         return {"description": "", "usage": ""}
     return {"description": ask_block("What does this file contain?"),
             "usage": ask_block("Which parts should be used, and how?",
-                              "For datasets, explain each feature, units and categories, or reference a data dictionary.")}
+                              "Explain it so someone new to the project could work with it, including the units and conventions needed to read it.")}
 
 
 def run_task(api, draft, meta, seed_path=""):

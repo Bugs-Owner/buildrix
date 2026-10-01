@@ -5,9 +5,9 @@ Use `buildrix task draft meta` as the source of current options. Add the active
 `--journal SESSION.jsonl` to all draft commands with a draft ID below.
 
 - Objective: result, scope and task-defining constraints.
-- Inputs & Resources: starting files or HTTPS links; contents, which parts to
-  use and how, and every dataset feature's meaning and units, directly or via
-  a data dictionary.
+- Inputs & Resources: starting files or HTTPS links; what each one is and how
+  the task uses it, clear enough for someone new to the project, with the units
+  and conventions needed to read it correctly.
 - Detailed Instruction: the experienced contributor's procedure and checks.
 - Environment & Access: OS, software, versions, free/licensed tools, access and
   compute. Attach a Python environment configuration when relevant. Do not ask
