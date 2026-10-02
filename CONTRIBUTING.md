@@ -32,11 +32,10 @@ buildrix skill submit ./my-skill
 For a task, start with your own description of work you have completed, as
 clearly as you would hand it to a teammate. The wizard then helps you clarify
 the task, attach inputs and completed outputs, document the environment and
-reproducibility settings, and fill in a scoring table: what must be delivered,
-the dimensions you score with their bounds, weights and passing lines, and what
-your own output achieved. Answer new reviewer
-questions in the next reply; the hub incorporates the clarification into the
-saved section. Review the revised task before submitting.
+reproducibility settings, and fill in a scoring table: the dimensions you
+score with their values for 100 and 0 and weights, then what must be delivered
+and how good it must be. Answer new reviewer questions in the next reply; the
+hub incorporates the clarification into the saved section. Review the revised task before submitting.
 
 ## Resume, revise or withdraw
 

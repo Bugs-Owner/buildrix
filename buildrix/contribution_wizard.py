@@ -91,32 +91,14 @@ def _show(value):
 
 
 def scoring_table(record):
-    """Build the Evaluation scoring table question by question.
+    """Build the Evaluation scoring table: 1 Score, then 2 Success.
 
-    Score: dimensions, each one number with the value that scores 100, the value
-    that scores 0 and a weight, optionally in weighted stages. Success: the
-    required deliverables and a passing line per dimension. The hub checks the
-    arithmetic when the table is saved.
+    The hub's script checks the weights and values when the table is saved.
     """
-    current = record.get("rubric") or record.get("rubric_draft") or {}
-    rule("Scoring table · 1 · Required deliverables")
-    para("The minimum the agent must hand back for a run to count. Extra output is allowed.")
-    deliverables = []
-    for old in current.get("deliverables") or [{}]:
-        name = ask("Deliverable (file or item, Enter to stop)", old.get("name", ""))
-        if not name:
-            break
-        deliverables.append({"name": name, "requirement": ask("Minimum requirement", old.get("requirement", ""))})
-    while confirm("Add another deliverable", False):
-        deliverables.append({"name": ask("Deliverable", required=True),
-                             "requirement": ask("Minimum requirement")})
-
-    rule("Scoring table · 2 · Score")
-    para("Each dimension is one number. It scores 100 at one value and 0 at the other, on a "
-         "straight line in between, capped at 0 and 100. Weights add up to 1. Use stages only "
-         "when the work has checkpoints.")
+    current = record.get("rubric") or record.get("rubric_start") or {}
+    rule("Evaluation · 1 · Score")
     old_stages = current.get("stages") or [{}]
-    count = int(ask("How many stages", str(len(old_stages)), required=True) or 1)
+    count = int(ask("How many stages does the work have", str(len(old_stages)), required=True) or 1)
     stages = []
     for i in range(count):
         old = old_stages[i] if i < len(old_stages) else {}
@@ -129,23 +111,34 @@ def scoring_table(record):
                                str(len(old_dims)), required=True) or 1)):
             d = old_dims[j] if j < len(old_dims) else {}
             print()
+            name = ask("Dimension", d.get("name", ""), required=True)
+            better = ask_choice("Scores 100 when the value is", [("lower", "at or below a value (<=)"),
+                                                               ("higher", "at or above a value (>=)")],
+                                d.get("better") or "lower")
+            good, bad = ("<=", ">=") if better == "lower" else (">=", "<=")
             stage["dimensions"].append({
-                "name":      ask("Dimension name", d.get("name", ""), required=True),
-                "metric":    ask("How the number is calculated", d.get("metric", ""), required=True),
-                "best":      ask("Value that scores 100", _show(d.get("best")), required=True),
-                "worst":     ask("Value that scores 0", _show(d.get("worst")), required=True),
-                "why":       ask("Why these bounds", d.get("why", ""), required=True),
-                "weight":    ask("Weight", _show(d.get("weight")), required=True),
-                "pass_line": ask("Passing line", _show(d.get("pass_line")), required=True),
-                "own_value": ask("Your own output's value", _show(d.get("own_value")), required=True),
+                "name": name, "better": better,
+                "metric": ask("How is it calculated", d.get("metric", ""), required=True),
+                "best":   ask(f"Scores 100 when {good}", _show(d.get("best")), required=True),
+                "worst":  ask(f"Scores 0 when {bad}", _show(d.get("worst")), required=True),
+                "weight": ask("Weight", _show(d.get("weight")), required=True),
             })
         stages.append(stage)
 
-    rule("Scoring table · 3 · Success")
-    para("A run succeeds only when every required deliverable is delivered and every dimension "
-         "meets its passing line. One failure means the run fails.")
-    notes = ask("Anything else a grader needs (optional)", current.get("notes", ""))
-    return {"deliverables": deliverables, "stages": stages, "notes": notes}
+    rule("Evaluation · 2 · Success")
+    listed = [x.get("name", "") for x in current.get("deliverables") or [] if x.get("name")]
+    if listed:
+        para("Must be delivered (from your Deliverables section): " + ", ".join(listed))
+    extra = ask("Anything else that must be delivered? (comma-separated, Enter for none)")
+    names = listed + [x.strip() for x in extra.split(",") if x.strip()]
+    para("How good must it be? Give the passing condition for each dimension.")
+    for stage in stages:
+        for d in stage["dimensions"]:
+            sign = "<=" if d["better"] == "lower" else ">="
+            old = next((o for s in current.get("stages") or [] for o in s.get("dimensions") or []
+                        if o.get("name") == d["name"]), {})
+            d["pass_line"] = ask(f"{d['name']} {sign}", _show(old.get("pass_line")), required=True)
+    return {"deliverables": [{"name": n, "requirement": ""} for n in names], "stages": stages}
 
 
 def run_task(api, draft, meta, seed_path=""):
@@ -214,12 +207,9 @@ def run_task(api, draft, meta, seed_path=""):
                 draft = api.task_draft_description(draft["id"], text)
             elif action in ("table", "table-file"):
                 from buildrix.contribution_commands import read_json
-                table = (scoring_table(record) if action == "table"
+                table = (scoring_table({**record, "rubric_start": draft.get("rubric_start")}) if action == "table"
                          else read_json(ask("JSON file path", required=True).strip('"')))
                 draft = api.task_draft_dimension(draft["id"], dim, {"rubric": table, "review": True})
-                own = (draft.get("rubric_check") or {}).get("own") or {}
-                if own:
-                    print(f"Your own output scores {own.get('overall')} out of 100 under this table.")
                 if draft["dimensions"][dim].get("state") == "clear":
                     index = (index + 1) % len(definitions)
             elif action in ("answer", "edit", "review"):

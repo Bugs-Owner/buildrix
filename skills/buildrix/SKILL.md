@@ -99,10 +99,10 @@ sections clear yourself. Let the user go back, edit a section or file note,
 or pause. Use the returned text and remaining questions.
 
 Attach the real inputs, environment configurations and completed human outputs.
-Evaluation is a scoring table, not another file upload: required deliverables,
-scoring dimensions with bounds, weights and passing lines, and the user's own
-values. Save it with `draft rubric DRAFT_ID --data table.json`; see
-`references/task-format.md`.
+Evaluation is a scoring table, not another file upload: stages and scoring
+dimensions with their values for 100 and 0 and weights, then what must be
+delivered and a passing condition per dimension. Save it with
+`draft rubric DRAFT_ID --data table.json`; see `references/task-format.md`.
 
 Once complete, run `draft finalize DRAFT_ID`. Show the revised task and files.
 For an authorized wording change, use `draft prompt DRAFT_ID --text-file

@@ -153,14 +153,14 @@ def test_scoring_table_goes_to_evaluation_for_review(tmp_path):
 
 
 def test_wizard_builds_a_scoring_table(monkeypatch):
-    answers = iter(["forecast.csv", "kw column", "1", "1", "Accuracy", "CVRMSE",
-                    "0.28", "0.88", "Best known model", "1", "0.5", "0.43", ""])
+    answers = iter(["1", "1", "Accuracy", "CVRMSE", "0.28", "0.88", "1", "report.md", "0.5"])
     monkeypatch.setattr(wizard, "ask", lambda *a, **k: next(answers))
-    monkeypatch.setattr(wizard, "confirm", lambda *a, **k: False)
-    table = wizard.scoring_table({})
-    assert table["deliverables"] == [{"name": "forecast.csv", "requirement": "kw column"}]
+    monkeypatch.setattr(wizard, "ask_choice", lambda *a, **k: "lower")
+    start = {"deliverables": [{"name": "forecast.csv", "requirement": ""}]}
+    table = wizard.scoring_table({"rubric_start": start})
+    assert [d["name"] for d in table["deliverables"]] == ["forecast.csv", "report.md"]
     dim = table["stages"][0]["dimensions"][0]
-    assert (dim["best"], dim["worst"], dim["pass_line"], dim["own_value"]) == ("0.28", "0.88", "0.5", "0.43")
+    assert (dim["better"], dim["best"], dim["worst"], dim["pass_line"]) == ("lower", "0.28", "0.88", "0.5")
 
 
 def test_run_measurements_keep_only_what_was_measured():

@@ -16,13 +16,12 @@ Use `buildrix task draft meta` as the source of current options. Add the active
   parameters and software settings. Collect applicable conditions.
 - Deliverables: expected outputs and the contributor's actual completed output
   files, with contents and usage notes.
-- Evaluation: a scoring table, saved with `draft rubric` (below). Collect, in
-  the user's words: the required deliverables (a minimum; extra output is
-  allowed); each scoring dimension as one number with its calculation, the
-  value that scores 100, the value that scores 0, a short reason for those
-  bounds, a weight and a passing line; stages and stage weights only when the
-  work has checkpoints; and the value the user's own output achieved on each
-  dimension. The hub checks the arithmetic and recomputes the user's score.
+- Evaluation: a scoring table, saved with `draft rubric` (below). 1 Score: how
+  many stages and their weights; per stage, the dimensions with how each is
+  calculated, the value that scores 100 (<= or >=), the value that scores 0
+  and a weight. 2 Success: what must be delivered (start from `rubric_start`
+  in `draft get`, add only what is missing) and a passing condition per
+  dimension. The hub's script checks weights and values.
 
 Do not invent project facts. Separate goal/constraints from procedure; let the
 hub route new clarifications to the appropriate section.
@@ -59,25 +58,19 @@ File changes invalidate the affected review; review before finalizing.
 
 ## Scoring table
 
-Save this shape as table.json, with the user's own values:
+Save this shape as table.json, with the user's values:
 
 ```json
 {
-  "deliverables": [
-    {"name": "forecast.csv", "requirement": "One row per hour of December, timestamp and kw columns"}
-  ],
   "stages": [
     {"name": "", "weight": 1, "dimensions": [
       {"name": "Accuracy", "metric": "CVRMSE of hourly kw against measured December load",
-       "best": 0.28, "worst": 0.88, "weight": 0.7, "pass_line": 0.5,
-       "why": "0.28 matches the best known model; above 0.88 it is unusable",
-       "own_value": 0.43},
+       "better": "lower", "best": 0.28, "worst": 0.88, "weight": 0.7, "pass_line": 0.5},
       {"name": "Tokens", "metric": "Total tokens the run used",
-       "best": 50000, "worst": 300000, "weight": 0.3, "pass_line": 250000,
-       "why": "A careful guided run used about 50k tokens", "own_value": 100000}
+       "better": "lower", "best": 50000, "worst": 300000, "weight": 0.3, "pass_line": 250000}
     ]}
   ],
-  "notes": ""
+  "deliverables": [{"name": "forecast.csv", "requirement": ""}]
 }
 ```
 
@@ -85,10 +78,11 @@ Save this shape as table.json, with the user's own values:
 buildrix task draft rubric DRAFT_ID --data table.json
 ```
 
-`best` scores 100 and `worst` scores 0, linear in between and capped; their
-order sets the direction. Weights within a stage sum to 1; with several stages,
-name each and give stage weights that sum to 1. A run succeeds only when every
-deliverable is delivered and every dimension meets its passing line. An
+`better: lower` means score 100 at `<= best` and 0 at `>= worst`, linear in
+between and capped; `higher` reverses the signs. `pass_line` is the passing
+condition with the same sign as `best`. Weights within a stage add up to 1;
+with several stages, name each and give stage weights that add up to 1. A run
+succeeds only when everything is delivered and every condition is met. An
 invalid table is refused with the reasons; fix and resend it. Evaluation text
 is generated from the table, so `draft edit` does not apply to it.
 
