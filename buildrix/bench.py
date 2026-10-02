@@ -360,8 +360,14 @@ def _read_header(path: Path) -> set[str]:
 #  The run
 # ═══════════════════════════════════════════════════════════════════════════
 
+def run_measurements(record: dict) -> dict:
+    """What the runner measured, for scoring dimensions about time or tokens."""
+    return {k: record[k] for k in ("wall_clock_s", "tokens", "tool_calls")
+            if isinstance(record.get(k), (int, float)) and record[k] > 0}
+
+
 def _grade(api: BuildrixAPI, task: dict, artifacts: list[dict],
-           instance: str) -> Evaluation:
+           instance: str, run: dict | None = None) -> Evaluation:
     """Ask the hub to grade one condition's artifacts.
 
     Grading is the hub's job because the reference answer only exists there.
@@ -375,6 +381,7 @@ def _grade(api: BuildrixAPI, task: dict, artifacts: list[dict],
             "task_code":    task.get("task_code", ""),
             "instance_key": instance,
             "artifacts":    artifacts,
+            "run":          run or {},
         })
     except ApiError as e:
         local = evaluate_workspace_artifacts(task, artifacts)
@@ -390,7 +397,10 @@ def _grade(api: BuildrixAPI, task: dict, artifacts: list[dict],
         criteria=out.get("criteria") or {},
         evidence={**(out.get("evidence") or {}),
                   "_grader": out.get("grader", ""),
-                  "_notes": out.get("notes", "")},
+                  "_notes": out.get("notes", ""),
+                  # Raw values, capped/uncapped scores, success and pass rate
+                  # when the Task has a scoring table.
+                  **({"_rubric": out["rubric"]} if out.get("rubric") else {})},
         metric_name=out.get("metric_name", "buildrix_rubric"),
         receipt=out.get("receipt", ""),
     )
@@ -563,7 +573,9 @@ def run_benchmark(
                                          detailed, skill_name)
                     result = agent.run(workspace, prompt)
                     artifacts = _artifact_list(workspace)
-                    ev = _grade(api, task, artifacts, instance)
+                    ev = _grade(api, task, artifacts, instance, run_measurements(
+                        {"wall_clock_s": result.wall_clock_s, "tokens": result.tokens,
+                         "tool_calls": result.tool_calls}))
                     records.append({
                         "condition": condition,
                         "instance_key": instance,

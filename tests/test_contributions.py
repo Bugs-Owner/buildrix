@@ -138,3 +138,32 @@ def test_review_advances_only_after_hub_resolves_section(monkeypatch):
     assert "Objective" in headings[0] and "Inputs" in headings[1]
     assert api.calls[0][2]["json_body"]["answer"] == "Only my new answer"
 
+
+
+def test_scoring_table_goes_to_evaluation_for_review(tmp_path):
+    table = {"deliverables": [{"name": "forecast.csv", "requirement": "kw column"}],
+             "stages": [{"name": "", "weight": 1, "dimensions": [{"name": "Accuracy"}]}]}
+    data = tmp_path / "table.json"
+    data.write_text(json.dumps(table), encoding="utf-8")
+    api = RecordingAPI()
+    cc.draft_action(api, "task", args("rubric", data=data))
+    method, path, sent = api.calls[-1]
+    assert (method, path) == ("PUT", "/tasks/drafts/draft-1/dimensions/evaluation")
+    assert sent["json_body"] == {"rubric": table, "review": True}
+
+
+def test_wizard_builds_a_scoring_table(monkeypatch):
+    answers = iter(["forecast.csv", "kw column", "1", "1", "Accuracy", "CVRMSE",
+                    "0.28", "0.88", "Best known model", "1", "0.5", "0.43", ""])
+    monkeypatch.setattr(wizard, "ask", lambda *a, **k: next(answers))
+    monkeypatch.setattr(wizard, "confirm", lambda *a, **k: False)
+    table = wizard.scoring_table({})
+    assert table["deliverables"] == [{"name": "forecast.csv", "requirement": "kw column"}]
+    dim = table["stages"][0]["dimensions"][0]
+    assert (dim["best"], dim["worst"], dim["pass_line"], dim["own_value"]) == ("0.28", "0.88", "0.5", "0.43")
+
+
+def test_run_measurements_keep_only_what_was_measured():
+    from buildrix import bench
+    assert bench.run_measurements({"wall_clock_s": 12.5, "tokens": 0, "tool_calls": 3, "x": 1}) == \
+        {"wall_clock_s": 12.5, "tool_calls": 3}

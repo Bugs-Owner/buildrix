@@ -319,10 +319,13 @@ def _sync_group(api, directory: Path) -> dict:
                 continue
             graded = api.benchmark_grade({"task_id": group["task_id"],
                 "snapshot_digest": group["run_config"].get("snapshot_digest", ""),
-                "instance_key": record["instance_key"], "artifacts": record["artifacts"]})
+                "instance_key": record["instance_key"], "artifacts": record["artifacts"],
+                "run": bench.run_measurements(record)})
             if not graded.get("receipt"):
                 raise ApiError("Hub did not issue a grading receipt; result retained for retry")
             record.update({k: graded[k] for k in ("score", "metric_value", "passed", "criteria", "evidence") if k in graded})
+            if graded.get("rubric"):
+                record["evidence"] = {**record.get("evidence", {}), "_rubric": graded["rubric"]}
             record["grade_receipt"] = graded["receipt"]
             group["metric_name"] = graded.get("metric_name", "score")
             group["evaluator_version"] = graded.get("evaluator_version", "hub")

@@ -86,6 +86,68 @@ def file_notes(kind):
                               "Explain it so someone new to the project could work with it, including the units and conventions needed to read it.")}
 
 
+def _show(value):
+    return "" if value is None else str(value)
+
+
+def scoring_table(record):
+    """Build the Evaluation scoring table question by question.
+
+    Score: dimensions, each one number with the value that scores 100, the value
+    that scores 0 and a weight, optionally in weighted stages. Success: the
+    required deliverables and a passing line per dimension. The hub checks the
+    arithmetic when the table is saved.
+    """
+    current = record.get("rubric") or record.get("rubric_draft") or {}
+    rule("Scoring table · 1 · Required deliverables")
+    para("The minimum the agent must hand back for a run to count. Extra output is allowed.")
+    deliverables = []
+    for old in current.get("deliverables") or [{}]:
+        name = ask("Deliverable (file or item, Enter to stop)", old.get("name", ""))
+        if not name:
+            break
+        deliverables.append({"name": name, "requirement": ask("Minimum requirement", old.get("requirement", ""))})
+    while confirm("Add another deliverable", False):
+        deliverables.append({"name": ask("Deliverable", required=True),
+                             "requirement": ask("Minimum requirement")})
+
+    rule("Scoring table · 2 · Score")
+    para("Each dimension is one number. It scores 100 at one value and 0 at the other, on a "
+         "straight line in between, capped at 0 and 100. Weights add up to 1. Use stages only "
+         "when the work has checkpoints.")
+    old_stages = current.get("stages") or [{}]
+    count = int(ask("How many stages", str(len(old_stages)), required=True) or 1)
+    stages = []
+    for i in range(count):
+        old = old_stages[i] if i < len(old_stages) else {}
+        stage = {"name": "", "weight": 1, "dimensions": []}
+        if count > 1:
+            stage["name"] = ask(f"Stage {i + 1} name", old.get("name", ""), required=True)
+            stage["weight"] = ask(f"Stage {i + 1} weight", _show(old.get("weight")), required=True)
+        old_dims = old.get("dimensions") or [{}]
+        for j in range(int(ask("How many dimensions" + (f" in {stage['name']}" if count > 1 else ""),
+                               str(len(old_dims)), required=True) or 1)):
+            d = old_dims[j] if j < len(old_dims) else {}
+            print()
+            stage["dimensions"].append({
+                "name":      ask("Dimension name", d.get("name", ""), required=True),
+                "metric":    ask("How the number is calculated", d.get("metric", ""), required=True),
+                "best":      ask("Value that scores 100", _show(d.get("best")), required=True),
+                "worst":     ask("Value that scores 0", _show(d.get("worst")), required=True),
+                "why":       ask("Why these bounds", d.get("why", ""), required=True),
+                "weight":    ask("Weight", _show(d.get("weight")), required=True),
+                "pass_line": ask("Passing line", _show(d.get("pass_line")), required=True),
+                "own_value": ask("Your own output's value", _show(d.get("own_value")), required=True),
+            })
+        stages.append(stage)
+
+    rule("Scoring table · 3 · Success")
+    para("A run succeeds only when every required deliverable is delivered and every dimension "
+         "meets its passing line. One failure means the run fails.")
+    notes = ask("Anything else a grader needs (optional)", current.get("notes", ""))
+    return {"deliverables": deliverables, "stages": stages, "notes": notes}
+
+
 def run_task(api, draft, meta, seed_path=""):
     if not draft.get("initial_request"):
         rule("Task description")
@@ -113,8 +175,12 @@ def run_task(api, draft, meta, seed_path=""):
         for question in record.get("questions", []):
             if not question.get("answered"):
                 para(question.get("text", ""))
-        options = [("answer", "Answer the comments"), ("edit", "Replace this section"),
-                   ("view", "View current text"), ("include", "What to include")]
+        if dim == "evaluation":
+            options = [("table", "Fill in the scoring table"),
+                       ("table-file", "Load the scoring table from a JSON file")]
+        else:
+            options = [("answer", "Answer the comments"), ("edit", "Replace this section")]
+        options += [("view", "View current text"), ("include", "What to include")]
         if any(p.get("status") == "pending" for p in record.get("proposals", [])):
             options.append(("proposals", "Review suggested changes"))
         if definition.get("asset_kind"):
@@ -146,6 +212,16 @@ def run_task(api, draft, meta, seed_path=""):
             elif action == "description":
                 text = ask_block("Updated task description")
                 draft = api.task_draft_description(draft["id"], text)
+            elif action in ("table", "table-file"):
+                from buildrix.contribution_commands import read_json
+                table = (scoring_table(record) if action == "table"
+                         else read_json(ask("JSON file path", required=True).strip('"')))
+                draft = api.task_draft_dimension(draft["id"], dim, {"rubric": table, "review": True})
+                own = (draft.get("rubric_check") or {}).get("own") or {}
+                if own:
+                    print(f"Your own output scores {own.get('overall')} out of 100 under this table.")
+                if draft["dimensions"][dim].get("state") == "clear":
+                    index = (index + 1) % len(definitions)
             elif action in ("answer", "edit", "review"):
                 if action == "review":
                     body = {"content": record.get("content", ""), "review": True}

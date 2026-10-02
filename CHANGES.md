@@ -1,5 +1,12 @@
 # Changes
 
+## Unreleased
+
+- `task draft rubric ID --data table.json` saves a task's Evaluation scoring
+  table; the interactive wizard builds the table step by step.
+- Benchmark runs send measured time, tokens and tool calls to the hub grader,
+  and keep the scoring table's full result in each record's evidence.
+
 ## 0.1.0
 
 - Shared task and skill contribution workflows across web, CLI and local agents.

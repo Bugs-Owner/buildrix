@@ -33,14 +33,14 @@ def add_commands(skill, task):
         q.set_defaults(workflow_command=True)
         q = commands.add_parser("draft", help="Work with the same saved draft as the web (JSON responses)")
         actions = q.add_subparsers(dest="action", required=True)
-        for action in ("meta", "create", "get", "patch", "describe", "answer", "edit",
+        for action in ("meta", "create", "get", "patch", "describe", "answer", "edit", "rubric",
                        "upload", "link", "asset-notes", "remove-file", "review",
                        "finalize", "prompt", "instructions", "requirements",
                        "package", "download", "proposal", "submit", "log", "withdraw",
                        "start-session", "log-local", "sync-local", "capture-initial"):
             if kind == "task" and action in {"instructions", "requirements", "package", "download"}:
                 continue
-            if kind == "skill" and action in {"answer", "edit", "link", "asset-notes", "finalize", "prompt", "proposal", "capture-initial"}:
+            if kind == "skill" and action in {"answer", "edit", "rubric", "link", "asset-notes", "finalize", "prompt", "proposal", "capture-initial"}:
                 continue
             a = actions.add_parser(action)
             a.set_defaults(workflow_command=True)
@@ -51,6 +51,9 @@ def add_commands(skill, task):
                 a.add_argument("draft_id")
             if action in ("create", "patch", "link", "asset-notes", "requirements"):
                 a.add_argument("--data", required=True, help="UTF-8 JSON file containing the request fields")
+            if action == "rubric":
+                a.add_argument("--data", required=True,
+                               help="UTF-8 JSON file with the Evaluation scoring table (deliverables, stages)")
             if action in ("describe", "answer", "edit", "prompt", "instructions", "log-local", "capture-initial"):
                 a.add_argument("--text-file", required=True, help="UTF-8 text, sent without rewriting")
             if action in ("answer", "edit"):
@@ -167,6 +170,9 @@ def draft_action(api, kind, args):
             return api.task_draft_dimension(args.draft_id, args.dimension,
                                            {"answer" if action == "answer" else "content": text, "review": True})
         raise ValueError("Revise the skill instructions or package, then run draft review.")
+    if action == "rubric":
+        return api.task_draft_dimension(args.draft_id, "evaluation",
+                                       {"rubric": read_json(args.data), "review": True})
     if action == "upload":
         data = read_json(args.data)
         if kind == "task":
