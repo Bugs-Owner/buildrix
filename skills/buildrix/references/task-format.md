@@ -18,8 +18,8 @@ Use `buildrix task draft meta` as the source of current options. Add the active
   files, with contents and usage notes.
 - Evaluation: a scoring table, saved with `draft rubric` (below). 1 Score: how
   many stages and their weights; per stage, the dimensions with how each is
-  calculated, the value that scores 100 (<= or >=), the value that scores 0
-  and a weight. 2 Success: what must be delivered (start from `rubric_start`
+  calculated (data, period, formula or equation, units), the value that scores 100 (<= or >=), the value that scores 0
+  and a weight. 2 Success: what must be delivered, each with its format and contents (start from `rubric_start`
   in `draft get`, add only what is missing), a passing condition per
   dimension, and the user's own result on each. The hub's script checks weights and values.
 
