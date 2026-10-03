@@ -139,7 +139,11 @@ def scoring_table(record):
                         if o.get("name") == d["name"]), {})
             d["pass_line"] = ask(f"{d['name']}: passing condition {sign}", _show(old.get("pass_line")), required=True)
             d["own_value"] = ask(f"{d['name']}: your result", _show(old.get("own_value")), required=True)
-    return {"deliverables": [{"name": n, "requirement": ""} for n in names], "stages": stages}
+    old_conditions = "; ".join(current.get("conditions") or [])
+    conditions = ask("Anything else it must meet? (yes/no conditions, separated by ;)", old_conditions)
+    return {"deliverables": [{"name": n, "requirement": ""} for n in names],
+            "conditions": [c.strip() for c in conditions.split(";") if c.strip()],
+            "stages": stages}
 
 
 def run_task(api, draft, meta, seed_path=""):

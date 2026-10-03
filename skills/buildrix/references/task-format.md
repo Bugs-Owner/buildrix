@@ -72,7 +72,8 @@ Save this shape as table.json, with the user's values:
        "pass_line": 250000, "own_value": 100000}
     ]}
   ],
-  "deliverables": [{"name": "forecast.csv", "requirement": ""}]
+  "deliverables": [{"name": "forecast.csv", "requirement": "hourly timestamp and kw, December"}],
+  "conditions": ["No missing hours in December"]
 }
 ```
 
@@ -84,7 +85,10 @@ buildrix task draft rubric DRAFT_ID --data table.json
 between and capped; `higher` reverses the signs. `pass_line` is the passing
 condition with the same sign as `best`; `own_value` is the user's own result
 (self-reported; checked when the task is benchmarked). Weights within a stage add up to 1;
-with several stages, name each and give stage weights that add up to 1. A run
+with several stages, name each and give stage weights that add up to 1.
+`conditions` are optional extra yes/no requirements. When results span many
+periods or cases, say how each dimension combines them and add a dimension for
+the spread or worst case (worst day, 90th percentile, share of days passing). A run
 succeeds only when everything is delivered and every condition is met. An
 invalid table is refused with the reasons; fix and resend it. Evaluation text
 is generated from the table, so `draft edit` does not apply to it.
