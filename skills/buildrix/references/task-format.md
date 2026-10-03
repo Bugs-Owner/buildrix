@@ -6,8 +6,8 @@ Use `buildrix task draft meta` as the source of current options. Add the active
 
 - Objective: result, scope and task-defining constraints.
 - Inputs & Resources: starting files or HTTPS links; what each one is and how
-  the task uses it, clear enough for someone new to the project, with the units
-  and conventions needed to read it correctly.
+  the task uses it, clear enough for someone new to the project, with units and
+  conventions only where the data does not make them clear.
 - Detailed Instruction: the experienced contributor's procedure and checks.
 - Environment & Access: OS, software, versions, free/licensed tools, access and
   compute. Attach a Python environment configuration when relevant. Do not ask

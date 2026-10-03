@@ -83,7 +83,7 @@ def file_notes(kind):
         return {"description": "", "usage": ""}
     return {"description": ask_block("What does this file contain?"),
             "usage": ask_block("Which parts should be used, and how?",
-                              "Explain it so someone new to the project could work with it, including the units and conventions needed to read it.")}
+                              "Explain it so someone new to the project could work with it. Give units and conventions only where the data does not make them clear.")}
 
 
 def _show(value):
