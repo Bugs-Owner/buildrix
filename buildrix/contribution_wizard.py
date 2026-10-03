@@ -131,13 +131,14 @@ def scoring_table(record):
         para("Must be delivered (from your Deliverables section): " + ", ".join(listed))
     extra = ask("Anything else that must be delivered? (comma-separated, Enter for none)")
     names = listed + [x.strip() for x in extra.split(",") if x.strip()]
-    para("How good must it be? Give the passing condition for each dimension.")
+    para("How good must it be? Give the passing condition for each dimension, and your own result.")
     for stage in stages:
         for d in stage["dimensions"]:
             sign = "<=" if d["better"] == "lower" else ">="
             old = next((o for s in current.get("stages") or [] for o in s.get("dimensions") or []
                         if o.get("name") == d["name"]), {})
-            d["pass_line"] = ask(f"{d['name']} {sign}", _show(old.get("pass_line")), required=True)
+            d["pass_line"] = ask(f"{d['name']}: passing condition {sign}", _show(old.get("pass_line")), required=True)
+            d["own_value"] = ask(f"{d['name']}: your result", _show(old.get("own_value")), required=True)
     return {"deliverables": [{"name": n, "requirement": ""} for n in names], "stages": stages}
 
 

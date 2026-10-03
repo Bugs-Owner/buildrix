@@ -20,8 +20,8 @@ Use `buildrix task draft meta` as the source of current options. Add the active
   many stages and their weights; per stage, the dimensions with how each is
   calculated, the value that scores 100 (<= or >=), the value that scores 0
   and a weight. 2 Success: what must be delivered (start from `rubric_start`
-  in `draft get`, add only what is missing) and a passing condition per
-  dimension. The hub's script checks weights and values.
+  in `draft get`, add only what is missing), a passing condition per
+  dimension, and the user's own result on each. The hub's script checks weights and values.
 
 Do not invent project facts. Separate goal/constraints from procedure; let the
 hub route new clarifications to the appropriate section.
@@ -65,9 +65,11 @@ Save this shape as table.json, with the user's values:
   "stages": [
     {"name": "", "weight": 1, "dimensions": [
       {"name": "Accuracy", "metric": "CVRMSE of hourly kw against measured December load",
-       "better": "lower", "best": 0.28, "worst": 0.88, "weight": 0.7, "pass_line": 0.5},
+       "better": "lower", "best": 0.28, "worst": 0.88, "weight": 0.7,
+       "pass_line": 0.5, "own_value": 0.43},
       {"name": "Tokens", "metric": "Total tokens the run used",
-       "better": "lower", "best": 50000, "worst": 300000, "weight": 0.3, "pass_line": 250000}
+       "better": "lower", "best": 50000, "worst": 300000, "weight": 0.3,
+       "pass_line": 250000, "own_value": 100000}
     ]}
   ],
   "deliverables": [{"name": "forecast.csv", "requirement": ""}]
@@ -80,7 +82,8 @@ buildrix task draft rubric DRAFT_ID --data table.json
 
 `better: lower` means score 100 at `<= best` and 0 at `>= worst`, linear in
 between and capped; `higher` reverses the signs. `pass_line` is the passing
-condition with the same sign as `best`. Weights within a stage add up to 1;
+condition with the same sign as `best`; `own_value` is the user's own result
+(self-reported; checked when the task is benchmarked). Weights within a stage add up to 1;
 with several stages, name each and give stage weights that add up to 1. A run
 succeeds only when everything is delivered and every condition is met. An
 invalid table is refused with the reasons; fix and resend it. Evaluation text
