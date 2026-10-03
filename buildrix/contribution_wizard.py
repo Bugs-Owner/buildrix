@@ -143,7 +143,7 @@ def scoring_table(record):
             good, bad = ("<=", ">=") if better == "lower" else (">=", "<=")
             stage["dimensions"].append({
                 "name": name, "better": better,
-                "metric": ask("How is it calculated" + eg(h.get("metric")), d.get("metric", ""), required=True),
+                "metric": ask("Why this metric, and how is it calculated" + eg(h.get("metric")), d.get("metric", ""), required=True),
                 "best":   ask(f"Scores 100 when {good}", _show(d.get("best")), required=True),
                 "worst":  ask(f"Scores 0 when {bad}", _show(d.get("worst")), required=True),
                 "weight": ask("Weight", _show(d.get("weight")), required=True),

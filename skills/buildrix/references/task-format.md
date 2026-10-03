@@ -18,7 +18,7 @@ Use `buildrix task draft meta` as the source of current options. Add the active
   files, with contents and usage notes.
 - Evaluation: a scoring table, saved with `draft rubric` (below). 1 Score:
   how many stages and their weights; per stage, how many performance metrics,
-  each named by the aspect it measures (Accuracy, Robustness), with how it is
+  each under its own name (MAE, RMSE), with why it was chosen and how it is
   calculated (data, period, formula or equation, units), the value that scores
   100 (<= or >=), the value that scores 0, and a weight. 2 Success: each output
   that must be delivered, described by what it is and contains rather than by
