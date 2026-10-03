@@ -11,7 +11,7 @@ def metadata(meta, kind, current=None):
     rule("About the " + kind)
     body = {}
     text_fields = [("title", "Task title")] if kind == "task" else [
-        ("name", "Package name"), ("description", "What the skill does and when to use it"),
+        ("name", "Skill name (any wording; saved as e.g. load-forecasting)"), ("description", "What the skill does and when to use it"),
         ("version", "Version"), ("license", "License")]
     for key, title in text_fields:
         default = current.get(key) or ({"version": "0.1.0", "license": "Apache-2.0"}.get(key, ""))
