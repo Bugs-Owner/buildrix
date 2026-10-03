@@ -22,13 +22,16 @@ def metadata(meta, kind, current=None):
         ("complexity", "complexity_options", "Complexity"),
         ("task_familiarity", "task_familiarity", "Familiarity with this work"),
         ("agentic_familiarity", "agentic_familiarity", "Experience with AI agents"),
-        ("ai_assistance", "ai_assistance", f"Did you use AI to develop this {kind}"),
+        ("ai_assistance", "ai_assistance", f"Did you use AI to help develop this {kind}"),
     ]:
         if source not in meta:        # an older hub that does not ask this yet
             continue
         body[field] = ask_choice(title, [(str(r["id"]), r["label"]) for r in meta[source]],
                                  str(current.get(field) or ""))
     body["complexity"] = int(body["complexity"])
+    if "ai_assistance" in body:
+        body["ai_tool"] = (ask("Which tool", current.get("ai_tool") or "", required=True)
+                           if body["ai_assistance"] == "other" else "")
     return body
 
 
