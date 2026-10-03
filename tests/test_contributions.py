@@ -15,9 +15,11 @@ class RecordingAPI(BuildrixAPI):
         self.response = {"id": "draft-1"}
 
     def _request(self, method, path, **kwargs):
-        if kwargs.get("files"):
+        if isinstance(kwargs.get("files"), dict):
             name, handle = kwargs["files"]["file"]
             kwargs["uploaded"] = (name, handle.read())
+        elif kwargs.get("files"):
+            kwargs["uploaded"] = [(field, name, handle.read()) for field, (name, handle) in kwargs["files"]]
         self.calls.append((method, path, kwargs))
         return self.response
 
@@ -188,11 +190,14 @@ def test_an_output_note_asks_only_for_its_contents(monkeypatch):
     assert asked == ["What does this file contain?"]
 
 
-def test_a_reply_to_the_review_goes_to_the_hub_verbatim(tmp_path):
-    file = tmp_path / "reply.txt"
-    file.write_text("The daily values are averaged.", encoding="utf-8")
+def test_a_reply_to_the_review_sends_text_and_files(tmp_path):
+    reply = tmp_path / "reply.txt"
+    reply.write_text("The daily values are averaged.", encoding="utf-8")
+    extra = tmp_path / "day8.csv"
+    extra.write_bytes(b"timestamp,kw\n1,2\n")
     api = RecordingAPI()
-    cc.draft_action(api, "task", args("reply", text_file=file))
+    cc.draft_action(api, "task", args("reply", text_file=reply, file=[str(extra)]))
     method, path, sent = api.calls[-1]
     assert (method, path) == ("POST", "/tasks/drafts/draft-1/review-reply")
-    assert sent["json_body"] == {"text": "The daily values are averaged."}
+    assert sent["data"] == {"text": "The daily values are averaged."}
+    assert sent["uploaded"] == [("files", "day8.csv", b"timestamp,kw\n1,2\n")]

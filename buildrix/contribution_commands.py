@@ -54,8 +54,12 @@ def add_commands(skill, task):
             if action == "rubric":
                 a.add_argument("--data", required=True,
                                help="UTF-8 JSON file with the Evaluation scoring table (deliverables, stages)")
-            if action in ("describe", "answer", "edit", "prompt", "reply", "instructions", "log-local", "capture-initial"):
+            if action in ("describe", "answer", "edit", "prompt", "instructions", "log-local", "capture-initial"):
                 a.add_argument("--text-file", required=True, help="UTF-8 text, sent without rewriting")
+            if action == "reply":
+                a.add_argument("--text-file", default="", help="UTF-8 reply to the reviewer's open points")
+                a.add_argument("--file", action="append", default=[],
+                               help="A file the reviewer asked for; repeat for several")
             if action in ("answer", "edit"):
                 a.add_argument("--dimension", required=True)
             if action == "proposal":
@@ -205,8 +209,16 @@ def draft_action(api, kind, args):
             raise ValueError("Skill instructions are authored in files. Use draft review, then draft submit.")
         return api.task_draft_finalize(args.draft_id)
     if action == "reply" and kind == "task":
-        # Answer a revision verdict; the hub re-reviews the unchanged task.
-        return api.post(url + "/review-reply", json_body={"text": read_text(args.text_file)}, timeout=300)
+        # Answer the points a review left open, with words, files or both. The
+        # hub checks only those points and merges what settles them.
+        handles = [open(Path(f), "rb") for f in (args.file or [])]
+        try:
+            return api.post(url + "/review-reply", timeout=300,
+                            data={"text": read_text(args.text_file) if args.text_file else ""},
+                            files=[("files", (Path(h.name).name, h)) for h in handles] or None)
+        finally:
+            for h in handles:
+                h.close()
     if action == "prompt" and kind == "task":
         return api.task_draft_prompt(args.draft_id, read_text(args.text_file))
     if action == "instructions" and kind == "skill":
