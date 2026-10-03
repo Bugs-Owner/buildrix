@@ -50,7 +50,9 @@ and accessibility are not automatically verified.
 
 Environment files: dimension `environment_access`, kind `environment`;
 description/usage are optional. Completed outputs: dimension `deliverables`,
-kind `human_reference`, both notes required. Evaluation has no upload.
+kind `human_reference`; `description` (format and contents, and how to run it
+for a model or tool) is required, `usage` optional. Several files of one kind
+may share the same notes. Evaluation has no upload.
 
 `draft asset-notes ID --asset ASSET_ID --data notes.json` edits notes.
 `draft remove-file ID --asset ASSET_ID` removes a draft attachment.

@@ -63,14 +63,17 @@ def task_files(api, draft, definition):
                 "source_url": ask("HTTPS share link", required=True),
                 "dimension": dimension, "kind": kind, **file_notes(kind)}
         return api.task_draft_link(draft["id"], body)
-    paths = ask_block("File paths, one per line", "Paths may contain spaces.").splitlines()
+    paths = [p for p in ask_block("File paths, one per line", "Paths may contain spaces.").splitlines() if p.strip()]
+    # Several files of one kind, such as one output per test day, can share a note.
+    shared = file_notes(kind) if len(paths) > 1 and kind != "environment" and confirm(
+        f"Use one note for all {len(paths)} files", True) else None
     for raw in paths:
         path = Path(raw.strip().strip('"')).expanduser()
         if not path.is_file():
             print(f"File not found: {path}")
             continue
         print(f"\n{path.name}")
-        notes = file_notes(kind)
+        notes = shared or file_notes(kind)
         try:
             draft = api.task_draft_asset(draft["id"], path, dimension, kind, **notes)
         except ApiError as error:
@@ -81,6 +84,11 @@ def task_files(api, draft, definition):
 def file_notes(kind):
     if kind == "environment":
         return {"description": "", "usage": ""}
+    if kind == "human_reference":
+        # A completed output needs its contents; how it is judged is Evaluation's job.
+        return {"description": ask_block("What does this file contain?",
+                                         "Format and contents. If it is a model or tool, also say how to run it."),
+                "usage": ""}
     return {"description": ask_block("What does this file contain?"),
             "usage": ask_block("Which parts should be used, and how?",
                               "Explain it so someone new to the project could work with it. Give units and conventions only where the data does not make them clear.")}

@@ -169,3 +169,10 @@ def test_run_measurements_keep_only_what_was_measured():
     from buildrix import bench
     assert bench.run_measurements({"wall_clock_s": 12.5, "tokens": 0, "tool_calls": 3, "x": 1}) == \
         {"wall_clock_s": 12.5, "tool_calls": 3}
+
+
+def test_an_output_note_asks_only_for_its_contents(monkeypatch):
+    asked = []
+    monkeypatch.setattr(wizard, "ask_block", lambda prompt, *a, **k: asked.append(prompt) or "Hourly predictions")
+    assert wizard.file_notes("human_reference") == {"description": "Hourly predictions", "usage": ""}
+    assert asked == ["What does this file contain?"]
