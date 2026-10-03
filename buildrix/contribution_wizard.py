@@ -101,55 +101,66 @@ def _show(value):
 def scoring_table(record):
     """Build the Evaluation scoring table: 1 Score, then 2 Success.
 
+    A saved table supplies the defaults. The reviewer's draft (`rubric_hint`)
+    is only ever shown as an example; nothing from it is kept unless typed.
     The hub's script checks the weights and values when the table is saved.
     """
-    current = record.get("rubric") or record.get("rubric_start") or {}
+    current = record.get("rubric") or {}
+    hint = record.get("rubric_hint") or {}
+
+    def eg(value):
+        return f" (e.g. {value})" if value not in (None, "") else ""
+
     rule("Evaluation · 1 · Score")
-    old_stages = current.get("stages") or [{}]
+    old_stages = current.get("stages") or hint.get("stages") or [{}]
     count = int(ask("How many stages does the work have", str(len(old_stages)), required=True) or 1)
     stages = []
     for i in range(count):
-        old = old_stages[i] if i < len(old_stages) else {}
+        old = (current.get("stages") or [{}] * count)[i] if i < len(current.get("stages") or []) else {}
+        tip = (hint.get("stages") or [{}] * count)[i] if i < len(hint.get("stages") or []) else {}
         stage = {"name": "", "weight": 1, "dimensions": []}
         if count > 1:
             stage["name"] = ask(f"Stage {i + 1} name", old.get("name", ""), required=True)
             stage["weight"] = ask(f"Stage {i + 1} weight", _show(old.get("weight")), required=True)
-        old_dims = old.get("dimensions") or [{}]
-        for j in range(int(ask("How many dimensions" + (f" in {stage['name']}" if count > 1 else ""),
-                               str(len(old_dims)), required=True) or 1)):
+        old_dims = old.get("dimensions") or []
+        tip_dims = tip.get("dimensions") or []
+        n = int(ask("How many performance metrics" + (f" in {stage['name']}" if count > 1 else ""),
+                    str(len(old_dims) or len(tip_dims) or 1), required=True) or 1)
+        for j in range(n):
             d = old_dims[j] if j < len(old_dims) else {}
-            print()
-            name = ask("Dimension", d.get("name", ""), required=True)
+            h = tip_dims[j] if j < len(tip_dims) else {}
+            print(f"\nPerformance metric {j + 1}")
+            name = ask("Name" + eg(h.get("name")), d.get("name", ""), required=True)
             better = ask_choice("Scores 100 when the value is", [("lower", "at or below a value (<=)"),
                                                                ("higher", "at or above a value (>=)")],
-                                d.get("better") or "lower")
+                                d.get("better") or h.get("better") or "lower")
             good, bad = ("<=", ">=") if better == "lower" else (">=", "<=")
             stage["dimensions"].append({
                 "name": name, "better": better,
-                "metric": ask("How is it calculated", d.get("metric", ""), required=True),
+                "metric": ask("How is it calculated" + eg(h.get("metric")), d.get("metric", ""), required=True),
                 "best":   ask(f"Scores 100 when {good}", _show(d.get("best")), required=True),
                 "worst":  ask(f"Scores 0 when {bad}", _show(d.get("worst")), required=True),
                 "weight": ask("Weight", _show(d.get("weight")), required=True),
+                "_old": d,
             })
         stages.append(stage)
 
     rule("Evaluation · 2 · Success")
-    listed = [x.get("name", "") for x in current.get("deliverables") or [] if x.get("name")]
-    if listed:
-        para("Must be delivered (from your Deliverables section): " + ", ".join(listed))
-    extra = ask("Anything else that must be delivered? (comma-separated, Enter for none)")
-    names = listed + [x.strip() for x in extra.split(",") if x.strip()]
-    para("How good must it be? Give the passing condition for each dimension, and your own result.")
+    example = "; ".join(x.get("name", "") for x in hint.get("deliverables") or [] if x.get("name"))
+    para("What must be delivered? Describe each output by what it is and contains; "
+         "file names may differ from yours." + (f" For example: {example}" if example else ""))
+    default = "; ".join(x.get("name", "") for x in current.get("deliverables") or [] if x.get("name"))
+    delivered = ask("Outputs, separated by ;", default, required=True)
+    para("How good must it be? Give the passing condition for each performance metric, and your own result.")
     for stage in stages:
         for d in stage["dimensions"]:
+            old = d.pop("_old")
             sign = "<=" if d["better"] == "lower" else ">="
-            old = next((o for s in current.get("stages") or [] for o in s.get("dimensions") or []
-                        if o.get("name") == d["name"]), {})
             d["pass_line"] = ask(f"{d['name']}: passing condition {sign}", _show(old.get("pass_line")), required=True)
             d["own_value"] = ask(f"{d['name']}: your result", _show(old.get("own_value")), required=True)
     old_conditions = "; ".join(current.get("conditions") or [])
     conditions = ask("Anything else it must meet? (yes/no conditions, separated by ;)", old_conditions)
-    return {"deliverables": [{"name": n, "requirement": ""} for n in names],
+    return {"deliverables": [{"name": x.strip(), "requirement": ""} for x in delivered.split(";") if x.strip()],
             "conditions": [c.strip() for c in conditions.split(";") if c.strip()],
             "stages": stages}
 
@@ -220,7 +231,7 @@ def run_task(api, draft, meta, seed_path=""):
                 draft = api.task_draft_description(draft["id"], text)
             elif action in ("table", "table-file"):
                 from buildrix.contribution_commands import read_json
-                table = (scoring_table({**record, "rubric_start": draft.get("rubric_start")}) if action == "table"
+                table = (scoring_table({**record, "rubric_hint": draft.get("rubric_hint")}) if action == "table"
                          else read_json(ask("JSON file path", required=True).strip('"')))
                 draft = api.task_draft_dimension(draft["id"], dim, {"rubric": table, "review": True})
                 if draft["dimensions"][dim].get("state") == "clear":

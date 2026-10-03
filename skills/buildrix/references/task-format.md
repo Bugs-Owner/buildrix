@@ -16,12 +16,16 @@ Use `buildrix task draft meta` as the source of current options. Add the active
   parameters and software settings. Collect applicable conditions.
 - Deliverables: expected outputs and the contributor's actual completed output
   files, with contents and usage notes.
-- Evaluation: a scoring table, saved with `draft rubric` (below). 1 Score: how
-  many stages and their weights; per stage, the dimensions with how each is
-  calculated (data, period, formula or equation, units), the value that scores 100 (<= or >=), the value that scores 0
-  and a weight. 2 Success: what must be delivered, each with its format and contents (start from `rubric_start`
-  in `draft get`, add only what is missing), a passing condition per
-  dimension, and the user's own result on each. The hub's script checks weights and values.
+- Evaluation: a scoring table, saved with `draft rubric` (below). 1 Score:
+  how many stages and their weights; per stage, how many performance metrics,
+  each named by the aspect it measures (Accuracy, Robustness), with how it is
+  calculated (data, period, formula or equation, units), the value that scores
+  100 (<= or >=), the value that scores 0, and a weight. 2 Success: each output
+  that must be delivered, described by what it is and contains rather than by
+  the user's file names; a passing condition and the user's own result per
+  metric; optional yes/no conditions. `rubric_hint` in `draft get` is the
+  reviewer's draft, for examples only. The hub's script checks weights and
+  values.
 
 Do not invent project facts. Separate goal/constraints from procedure; let the
 hub route new clarifications to the appropriate section.

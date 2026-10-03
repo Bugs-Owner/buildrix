@@ -153,16 +153,26 @@ def test_scoring_table_goes_to_evaluation_for_review(tmp_path):
 
 
 def test_wizard_builds_a_scoring_table(monkeypatch):
-    answers = iter(["1", "1", "Accuracy", "CVRMSE", "0.28", "0.88", "1", "report.md", "0.5", "0.43", "No missing hours; Never negative"])
-    monkeypatch.setattr(wizard, "ask", lambda *a, **k: next(answers))
+    answers = iter(["1", "1", "Accuracy", "CVRMSE", "0.28", "0.88", "1",
+                    "For each test day, a CSV of hourly predictions; summary.md", "0.5", "0.43",
+                    "No missing hours; Never negative"])
+    prompts = []
+    def ask(prompt, *a, **k):
+        prompts.append(prompt)
+        return next(answers)
+    monkeypatch.setattr(wizard, "ask", ask)
     monkeypatch.setattr(wizard, "ask_choice", lambda *a, **k: "lower")
-    start = {"deliverables": [{"name": "forecast.csv", "requirement": ""}]}
-    table = wizard.scoring_table({"rubric_start": start})
-    assert [d["name"] for d in table["deliverables"]] == ["forecast.csv", "report.md"]
+    hint = {"deliverables": [{"name": "predictions.csv"}],
+            "stages": [{"dimensions": [{"name": "Accuracy", "metric": "MAE of indoor temperature"}]}]}
+    table = wizard.scoring_table({"rubric_hint": hint})
+    # The reviewer's draft is shown as an example, never kept as an answer.
+    assert any("e.g. MAE of indoor temperature" in p for p in prompts)
+    assert [d["name"] for d in table["deliverables"]] == ["For each test day, a CSV of hourly predictions", "summary.md"]
     assert table["conditions"] == ["No missing hours", "Never negative"]
     dim = table["stages"][0]["dimensions"][0]
     assert (dim["better"], dim["best"], dim["worst"], dim["pass_line"], dim["own_value"]) == \
         ("lower", "0.28", "0.88", "0.5", "0.43")
+    assert "_old" not in dim
 
 
 def test_run_measurements_keep_only_what_was_measured():
