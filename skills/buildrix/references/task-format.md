@@ -111,5 +111,8 @@ Omit the dimension to recheck the task. `draft get ID` returns questions and
 submission blockers.
 
 Finish with `draft finalize ID`, inspect the revised task, then
-`draft submit ID --consent`. Legacy local task-folder checks do not replace
+`draft submit ID --consent`. If the review asks for a revision and the user
+only needs to explain a point, `draft reply ID --text-file reply.txt` sends
+their explanation; the hub re-reviews the unchanged task. If the task itself
+must say more, revise it instead. Legacy local task-folder checks do not replace
 the shared submission review.

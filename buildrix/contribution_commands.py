@@ -35,12 +35,12 @@ def add_commands(skill, task):
         actions = q.add_subparsers(dest="action", required=True)
         for action in ("meta", "create", "get", "patch", "describe", "answer", "edit", "rubric",
                        "upload", "link", "asset-notes", "remove-file", "review",
-                       "finalize", "prompt", "instructions", "requirements",
+                       "finalize", "prompt", "reply", "instructions", "requirements",
                        "package", "download", "proposal", "submit", "log", "withdraw",
                        "start-session", "log-local", "sync-local", "capture-initial"):
             if kind == "task" and action in {"instructions", "requirements", "package", "download"}:
                 continue
-            if kind == "skill" and action in {"answer", "edit", "rubric", "link", "asset-notes", "finalize", "prompt", "proposal", "capture-initial"}:
+            if kind == "skill" and action in {"answer", "edit", "rubric", "link", "asset-notes", "finalize", "prompt", "reply", "proposal", "capture-initial"}:
                 continue
             a = actions.add_parser(action)
             a.set_defaults(workflow_command=True)
@@ -54,7 +54,7 @@ def add_commands(skill, task):
             if action == "rubric":
                 a.add_argument("--data", required=True,
                                help="UTF-8 JSON file with the Evaluation scoring table (deliverables, stages)")
-            if action in ("describe", "answer", "edit", "prompt", "instructions", "log-local", "capture-initial"):
+            if action in ("describe", "answer", "edit", "prompt", "reply", "instructions", "log-local", "capture-initial"):
                 a.add_argument("--text-file", required=True, help="UTF-8 text, sent without rewriting")
             if action in ("answer", "edit"):
                 a.add_argument("--dimension", required=True)
@@ -204,6 +204,9 @@ def draft_action(api, kind, args):
         if kind != "task":
             raise ValueError("Skill instructions are authored in files. Use draft review, then draft submit.")
         return api.task_draft_finalize(args.draft_id)
+    if action == "reply" and kind == "task":
+        # Answer a revision verdict; the hub re-reviews the unchanged task.
+        return api.post(url + "/review-reply", json_body={"text": read_text(args.text_file)}, timeout=300)
     if action == "prompt" and kind == "task":
         return api.task_draft_prompt(args.draft_id, read_text(args.text_file))
     if action == "instructions" and kind == "skill":

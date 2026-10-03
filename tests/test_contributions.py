@@ -186,3 +186,13 @@ def test_an_output_note_asks_only_for_its_contents(monkeypatch):
     monkeypatch.setattr(wizard, "ask_block", lambda prompt, *a, **k: asked.append(prompt) or "Hourly predictions")
     assert wizard.file_notes("human_reference") == {"description": "Hourly predictions", "usage": ""}
     assert asked == ["What does this file contain?"]
+
+
+def test_a_reply_to_the_review_goes_to_the_hub_verbatim(tmp_path):
+    file = tmp_path / "reply.txt"
+    file.write_text("The daily values are averaged.", encoding="utf-8")
+    api = RecordingAPI()
+    cc.draft_action(api, "task", args("reply", text_file=file))
+    method, path, sent = api.calls[-1]
+    assert (method, path) == ("POST", "/tasks/drafts/draft-1/review-reply")
+    assert sent["json_body"] == {"text": "The daily values are averaged."}
