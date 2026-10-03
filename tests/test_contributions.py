@@ -85,7 +85,8 @@ def test_package_replacement_keeps_draft_and_relative_paths(tmp_path):
 def test_metadata_collects_same_fields_for_both_surfaces(monkeypatch):
     meta = {key: [{"id": value, "label": value}] for key, value in {
         "domains": "forecasting-analytics", "efforts": "1_day", "effort_options": "1_day",
-        "complexity_options": "3", "task_familiarity": "expert", "agentic_familiarity": "regular"}.items()}
+        "complexity_options": "3", "task_familiarity": "expert", "agentic_familiarity": "regular",
+        "ai_assistance": "claude_code"}.items()}
     monkeypatch.setattr(wizard, "ask", lambda prompt, default="", **kw: default or "a name")
     monkeypatch.setattr(wizard, "ask_choice", lambda prompt, options, default="": options[0][0])
     for kind in ("skill", "task"):
