@@ -19,7 +19,7 @@ utility, other). Choose at least one. With `other`, also send
 
 ## Reviewed sections
 
-The reviewer checks six sections and asks questions about them:
+The reviewer checks seven sections and asks questions about them:
 
 - Objective: result, scope and task-defining constraints.
 - Inputs & Resources: starting files or HTTPS links; what each one is and how
@@ -30,11 +30,6 @@ The reviewer checks six sections and asks questions about them:
   users to repeat package versions the reviewer can read from that file.
 - Reproducibility: random seeds, partitions, input lengths, relevant model
   parameters and software settings. Collect applicable conditions.
-  If the task invites open-ended search ("find the best model", "any approach
-  is fine"), the reviewer asks here whether the default limit is fine: each
-  agent compares at most five candidate approaches and keeps the best one,
-  picked on validation data. The user may keep it, change the number or list
-  the candidates.
 - Deliverables: expected outputs and the contributor's actual completed output
   files, with contents and usage notes.
 - Evaluation: a scoring table, saved with `draft rubric` (below). 1 Score:
@@ -47,6 +42,16 @@ The reviewer checks six sections and asks questions about them:
   metric; optional yes/no conditions. `rubric_hint` in `draft get` is the
   reviewer's draft, for examples only. The hub's script checks weights and
   values.
+- Retry policy: the limit every agent works within, so runs stop at
+  comparable points: how many attempts or candidate approaches it may try,
+  what counts as a failed attempt, and what it returns when it stops (for
+  example its best result with a note on what failed). A short boundary is
+  enough, such as "one attempt; if it fails, report the failure". If the task
+  invites open-ended search ("find the best model", "any approach is fine")
+  or says nothing about failure, the reviewer offers a default: at most five
+  attempts or candidate approaches, the best kept and picked on validation
+  data. The user may keep it or change it. The user's own tactics for
+  recovering from a failure belong in Human knowledge.
 
 Do not invent project facts. Separate goal/constraints from procedure; let the
 hub route new clarifications to the appropriate section. How the user would
@@ -54,7 +59,7 @@ do the work belongs in Human knowledge, not in these sections.
 
 ## Human knowledge
 
-Human knowledge has its own step, after the six reviewed sections and before
+Human knowledge has its own step, after the seven reviewed sections and before
 final review. It is stored under the id `detailed_instruction`. In
 `draft meta` it has `"reviewed": false`. The reviewer never asks about it.
 
