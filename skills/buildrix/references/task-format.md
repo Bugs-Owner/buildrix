@@ -4,16 +4,37 @@ Read this reference only after saving the initial human request without coaching
 Use `buildrix task draft meta` as the source of current options. Add the active
 `--journal SESSION.jsonl` to all draft commands with a draft ID below.
 
+## About the task
+
+Card 1 holds the title, domain, effort, complexity, familiarity, AI use and
+**Related stakeholders**: who could learn from this task. Send `stakeholders`
+as a list of ids from `draft meta` (researcher, engineer, architect,
+consultant, facility_manager, building_owner, homeowner, policy_maker,
+utility, other). Choose at least one. With `other`, also send
+`stakeholders_other`.
+
+```json
+{"stakeholders": ["engineer", "other"], "stakeholders_other": "Energy auditors"}
+```
+
+## Reviewed sections
+
+The reviewer checks six sections and asks questions about them:
+
 - Objective: result, scope and task-defining constraints.
 - Inputs & Resources: starting files or HTTPS links; what each one is and how
   the task uses it, clear enough for someone new to the project, with units and
   conventions only where the data does not make them clear.
-- Detailed Instruction: the experienced contributor's procedure and checks.
 - Environment & Access: OS, software, versions, free/licensed tools, access and
   compute. Attach a Python environment configuration when relevant. Do not ask
   users to repeat package versions the reviewer can read from that file.
 - Reproducibility: random seeds, partitions, input lengths, relevant model
   parameters and software settings. Collect applicable conditions.
+  If the task invites open-ended search ("find the best model", "any approach
+  is fine"), the reviewer asks here whether the default limit is fine: each
+  agent compares at most five candidate approaches and keeps the best one,
+  picked on validation data. The user may keep it, change the number or list
+  the candidates.
 - Deliverables: expected outputs and the contributor's actual completed output
   files, with contents and usage notes.
 - Evaluation: a scoring table, saved with `draft rubric` (below). 1 Score:
@@ -28,7 +49,28 @@ Use `buildrix task draft meta` as the source of current options. Add the active
   values.
 
 Do not invent project facts. Separate goal/constraints from procedure; let the
-hub route new clarifications to the appropriate section.
+hub route new clarifications to the appropriate section. How the user would
+do the work belongs in Human knowledge, not in these sections.
+
+## Human knowledge
+
+Human knowledge has its own step, after the six reviewed sections and before
+final review. It is stored under the id `detailed_instruction`. In
+`draft meta` it has `"reviewed": false`. The reviewer never asks about it.
+
+It is what the user knows about doing the task well: steps, rules of thumb,
+pitfalls, checkpoints, when to stop or retry, references, code. There is no
+required format. A few lines of text, or at least one knowledge file, is
+enough. Benchmarks compare agents on the task alone and on the task plus this
+knowledge, so it shows how much human knowledge helps.
+
+```sh
+buildrix task draft knowledge DRAFT_ID --text-file knowledge.txt
+```
+
+This saves the text as written, with no LLM review. For files, see below.
+Completeness (`complete` in `draft get`) depends only on the reviewed
+sections, but submission still needs some Human knowledge.
 
 ## Files and links
 
@@ -56,7 +98,9 @@ Environment files: dimension `environment_access`, kind `environment`;
 description/usage are optional. Completed outputs: dimension `deliverables`,
 kind `human_reference`; `description` (format and contents, and how to run it
 for a model or tool) is required, `usage` optional. Several files of one kind
-may share the same notes. Evaluation has no upload.
+may share the same notes. Human knowledge files: dimension
+`detailed_instruction`, kind `knowledge`; only `description` is needed.
+Evaluation has no upload.
 
 `draft asset-notes ID --asset ASSET_ID --data notes.json` edits notes.
 `draft remove-file ID --asset ASSET_ID` removes a draft attachment.
@@ -102,7 +146,8 @@ is generated from the table, so `draft edit` does not apply to it.
 ## Clarification and completion
 
 `draft answer` sends a fresh reply. `draft edit` replaces a section.
-Both take `ID --dimension SECTION_ID --text-file FILE` and request LLM review.
+Both take `ID --dimension SECTION_ID --text-file FILE` and request LLM review
+(except Human knowledge, which is never reviewed).
 `draft describe` on an existing draft retains the initial request and logs a
 new description revision.
 

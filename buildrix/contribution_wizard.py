@@ -2,8 +2,11 @@
 from pathlib import Path
 
 from buildrix.hub_api import ApiError
-from buildrix.interactive import ask, ask_block, ask_choice, confirm, para, rule, _submit
+from buildrix.interactive import ask, ask_block, ask_choice, ask_many, confirm, para, rule, _submit
 from buildrix.contribution_commands import import_skill, read_text
+
+# Human knowledge is stored under its original id.
+KNOWLEDGE = "detailed_instruction"
 
 
 def metadata(meta, kind, current=None):
@@ -29,6 +32,13 @@ def metadata(meta, kind, current=None):
         body[field] = ask_choice(title, [(str(r["id"]), r["label"]) for r in meta[source]],
                                  str(current.get(field) or ""))
     body["complexity"] = int(body["complexity"])
+    if kind == "task" and meta.get("stakeholders"):
+        body["stakeholders"] = ask_many(
+            "Related stakeholders (who could learn from this task)",
+            [(str(r["id"]), r["label"]) for r in meta["stakeholders"]],
+            current.get("stakeholders") or [], required=True)
+        body["stakeholders_other"] = (ask("Other stakeholder", current.get("stakeholders_other") or "", required=True)
+                                      if "other" in body["stakeholders"] else "")
     if "ai_assistance" in body:
         body["ai_tool"] = (ask("Which tool", current.get("ai_tool") or "", required=True)
                            if body["ai_assistance"] == "other" else "")
@@ -90,6 +100,11 @@ def task_files(api, draft, definition):
 def file_notes(kind):
     if kind == "environment":
         return {"description": "", "usage": ""}
+    if kind == "knowledge":
+        # Human knowledge files need only a description; no usage notes.
+        return {"description": ask_block("What does this file contain?",
+                                         "For example: a checklist you follow, a script you use, or a reference you rely on."),
+                "usage": ""}
     if kind == "human_reference":
         # A completed output needs its contents; how it is judged is Evaluation's job.
         return {"description": ask_block("What does this file contain?",
@@ -171,6 +186,44 @@ def scoring_table(record):
             "stages": stages}
 
 
+def has_knowledge(draft):
+    """A few lines of Human knowledge, or at least one knowledge file."""
+    text = (draft.get("dimensions", {}).get(KNOWLEDGE, {}).get("content") or "").strip()
+    return bool(text) or any(a.get("dimension") == KNOWLEDGE for a in draft.get("assets", []))
+
+
+def knowledge_step(api, draft, definition):
+    """Human knowledge: its own step after the reviewed sections. Never reviewed."""
+    while True:
+        rule(definition.get("title") or "Human knowledge")
+        para(definition.get("question", ""))
+        para("Share what you know about doing this task well. Agents are benchmarked on the "
+             "task alone and on the task plus your knowledge. A few lines, or one file, is enough. "
+             "The reviewer does not check this part.")
+        print("added" if has_knowledge(draft) else "not added yet")
+        action = ask_choice("Next action", [
+            ("write", "Write or replace your knowledge"), ("view", "View current text"),
+            ("include", "What to include"), ("files", "Files and shared links"),
+            ("done", "Done")])
+        try:
+            if action == "done":
+                return draft
+            if action == "view":
+                para(draft.get("dimensions", {}).get(KNOWLEDGE, {}).get("content", ""))
+            elif action == "include":
+                para(definition.get("help", ""))
+            elif action == "files":
+                draft = task_files(api, draft, definition)
+            elif action == "write":
+                text = ask_block("Your knowledge",
+                                 "Steps, rules of thumb, pitfalls, checkpoints, when to stop or retry, references, code.")
+                if text.strip():
+                    draft = api.task_draft_knowledge(draft["id"], text)
+        except (ApiError, OSError, ValueError) as error:
+            print(f"Could not save: {error}")
+            draft = api.task_draft(draft["id"])
+
+
 def run_task(api, draft, meta, seed_path=""):
     if not draft.get("initial_request"):
         rule("Task description")
@@ -185,9 +238,19 @@ def run_task(api, draft, meta, seed_path=""):
         draft = api.task_draft_request(draft["id"], text)
     if draft.get("intake_notes"):
         para(draft["intake_notes"])
-    definitions = meta["dimensions"]
+    # Human knowledge is not reviewed; it has its own step after the revisions.
+    definitions = [d for d in meta["dimensions"] if d.get("reviewed") is not False]
+    knowledge = next((d for d in meta["dimensions"] if d.get("reviewed") is False), None)
     index = next((i for i, d in enumerate(definitions)
                   if draft["dimensions"].get(d["id"], {}).get("state") not in ("clear", "not_applicable")), 0)
+
+    def after_revisions(draft):
+        # Once every reviewed section is settled, collect Human knowledge.
+        if knowledge and draft.get("complete") and not has_knowledge(draft):
+            draft = knowledge_step(api, draft, knowledge)
+        return draft
+
+    draft = after_revisions(draft)
     while True:
         definition = definitions[index]
         dim = definition["id"]
@@ -208,8 +271,10 @@ def run_task(api, draft, meta, seed_path=""):
             options.append(("proposals", "Review suggested changes"))
         if definition.get("asset_kind"):
             options.append(("files", "Files and shared links"))
-        options += [("review", "Review this section"), ("next", "Next section"), ("back", "Previous section"),
-                    ("about", "Edit About the task"), ("description", "Edit task description"),
+        options += [("review", "Review this section"), ("next", "Next section"), ("back", "Previous section")]
+        if knowledge:
+            options.append(("knowledge", "Human knowledge"))
+        options += [("about", "Edit About the task"), ("description", "Edit task description"),
                     ("finish", "Final review and submit"), ("pause", "Save and exit")]
         action = ask_choice("Next action", options)
         try:
@@ -230,6 +295,8 @@ def run_task(api, draft, meta, seed_path=""):
                     draft = api.task_draft_proposal(draft["id"], dim, proposal["id"], decision)
             elif action == "files":
                 draft = task_files(api, draft, definition)
+            elif action == "knowledge":
+                draft = knowledge_step(api, draft, knowledge)
             elif action == "about":
                 draft = api.task_draft_patch(draft["id"], metadata(meta, "task", draft["metadata"]))
             elif action == "description":
@@ -242,6 +309,7 @@ def run_task(api, draft, meta, seed_path=""):
                 draft = api.task_draft_dimension(draft["id"], dim, {"rubric": table, "review": True})
                 if draft["dimensions"][dim].get("state") == "clear":
                     index = (index + 1) % len(definitions)
+                    draft = after_revisions(draft)
             elif action in ("answer", "edit", "review"):
                 if action == "review":
                     body = {"content": record.get("content", ""), "review": True}
@@ -255,11 +323,17 @@ def run_task(api, draft, meta, seed_path=""):
                 para(updated.get("content", ""))
                 if updated.get("state") in ("clear", "not_applicable"):
                     index = (index + 1) % len(definitions)
+                    draft = after_revisions(draft)
             elif action == "finish":
                 if not draft.get("complete"):
                     for item in draft.get("missing", []):
                         print(item["title"] + ": " + item["state"].replace("_", " "))
                     continue
+                if knowledge and not has_knowledge(draft):
+                    draft = knowledge_step(api, draft, knowledge)
+                    if not has_knowledge(draft):
+                        print("Add your Human knowledge before the final review: a few lines or one file.")
+                        continue
                 if not draft.get("canonical_prompt"):
                     draft = api.task_draft_finalize(draft["id"])
                 rule("Revised task")

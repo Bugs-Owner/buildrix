@@ -202,3 +202,144 @@ def test_a_reply_to_the_review_sends_text_and_files(tmp_path):
     assert (method, path) == ("POST", "/tasks/drafts/draft-1/review-reply")
     assert sent["data"] == {"text": "The daily values are averaged."}
     assert sent["uploaded"] == [("files", "day8.csv", b"timestamp,kw\n1,2\n")]
+
+
+def test_metadata_asks_related_stakeholders_with_other(monkeypatch):
+    meta = {key: [{"id": value, "label": value}] for key, value in {
+        "domains": "forecasting-analytics", "efforts": "1_day", "complexity_options": "3",
+        "task_familiarity": "expert", "agentic_familiarity": "regular"}.items()}
+    meta["stakeholders"] = [{"id": "engineer", "label": "Engineer"}, {"id": "other", "label": "Other"}]
+    prompts = []
+    monkeypatch.setattr(wizard, "ask", lambda prompt, default="", **kw: prompts.append(prompt) or "Energy auditors")
+    monkeypatch.setattr(wizard, "ask_choice", lambda prompt, options, default="": options[0][0])
+    monkeypatch.setattr(wizard, "ask_many", lambda prompt, options, default=None, **kw: ["engineer", "other"])
+    result = wizard.metadata(meta, "task")
+    assert result["stakeholders"] == ["engineer", "other"]
+    assert result["stakeholders_other"] == "Energy auditors"
+    monkeypatch.setattr(wizard, "ask_many", lambda *a, **kw: ["engineer"])
+    assert wizard.metadata(meta, "task")["stakeholders_other"] == ""
+    # Skills never ask about stakeholders.
+    assert "stakeholders" not in wizard.metadata({**meta, "effort_options": meta["efforts"]}, "skill")
+
+
+def test_ask_many_accepts_numbers_and_ids(monkeypatch):
+    from buildrix import interactive
+    answers = iter(["9", "1, other"])
+    monkeypatch.setattr(interactive, "ask", lambda *a, **k: next(answers))
+    picked = interactive.ask_many("Who", [("engineer", "Engineer"), ("other", "Other")], required=True)
+    assert picked == ["engineer", "other"]
+
+
+KNOWLEDGE_DEF = {"id": "detailed_instruction", "title": "Human knowledge", "reviewed": False,
+                 "accepts_files": True, "asset_kind": "knowledge"}
+
+
+def test_revision_skips_human_knowledge_section(monkeypatch):
+    api = RecordingAPI()
+    draft = {"id": "draft-1", "initial_request": "A completed task", "dimensions": {
+        "objective": {"state": "clear"}, "detailed_instruction": {"state": "not_provided"},
+        "inputs_resources": {"state": "not_provided"}}}
+    api.response = draft
+    meta = {"dimensions": [{"id": "objective", "title": "Objective"}, KNOWLEDGE_DEF,
+                           {"id": "inputs_resources", "title": "Inputs"}]}
+    choices = iter(["next", "next", "pause"])
+    headings = []
+    offered = []
+    def choose(prompt, options, *a, **k):
+        offered.append([key for key, _ in options])
+        return next(choices)
+    monkeypatch.setattr(wizard, "ask_choice", choose)
+    monkeypatch.setattr(wizard, "rule", headings.append)
+    wizard.run_task(api, draft, meta)
+    assert headings == ["Revision · 2/2 · Inputs", "Revision · 1/2 · Objective", "Revision · 2/2 · Inputs"]
+    assert "knowledge" in offered[0]
+    assert not api.calls
+
+
+def test_human_knowledge_step_follows_revisions_and_is_not_reviewed(monkeypatch):
+    api = RecordingAPI()
+    draft = {"id": "draft-1", "initial_request": "A completed task", "complete": True,
+             "dimensions": {"objective": {"state": "clear"}, "detailed_instruction": {"state": "not_provided"}}}
+    saved = {**draft, "dimensions": {**draft["dimensions"],
+                                     "detailed_instruction": {"content": "Check the economizer first."}}}
+    api.response = saved
+    meta = {"dimensions": [{"id": "objective", "title": "Objective"}, KNOWLEDGE_DEF]}
+    choices = iter(["write", "done", "pause"])
+    headings = []
+    monkeypatch.setattr(wizard, "ask_choice", lambda *a, **k: next(choices))
+    monkeypatch.setattr(wizard, "ask_block", lambda *a, **k: "Check the economizer first.")
+    monkeypatch.setattr(wizard, "rule", headings.append)
+    wizard.run_task(api, draft, meta)
+    assert headings[0] == "Human knowledge"
+    method, path, sent = api.calls[0]
+    assert (method, path) == ("PUT", "/tasks/drafts/draft-1/dimensions/detailed_instruction")
+    assert sent["json_body"] == {"content": "Check the economizer first.", "review": False}
+
+
+def test_human_knowledge_counts_files():
+    draft = {"dimensions": {}, "assets": [{"dimension": "detailed_instruction", "kind": "knowledge"}]}
+    assert wizard.has_knowledge(draft)
+    assert not wizard.has_knowledge({"dimensions": {"detailed_instruction": {"content": "  "}}})
+
+
+def test_knowledge_file_asks_only_for_a_description(monkeypatch):
+    asked = []
+    monkeypatch.setattr(wizard, "ask_block", lambda prompt, *a, **k: asked.append(prompt) or "My checklist")
+    assert wizard.file_notes("knowledge") == {"description": "My checklist", "usage": ""}
+    assert len(asked) == 1
+
+
+def test_knowledge_command_saves_without_review(tmp_path):
+    file = tmp_path / "knowledge.txt"
+    file.write_bytes(b"Plot supply air first.\n")
+    api = RecordingAPI()
+    cc.draft_action(api, "task", args("knowledge", text_file=file))
+    method, path, sent = api.calls[-1]
+    assert (method, path) == ("PUT", "/tasks/drafts/draft-1/dimensions/detailed_instruction")
+    assert sent["json_body"] == {"content": "Plot supply air first.\n", "review": False}
+    cc.draft_action(api, "task", args("edit", text_file=file, dimension="detailed_instruction"))
+    assert api.calls[-1][2]["json_body"]["review"] is False
+    with pytest.raises(ValueError):
+        cc.draft_action(api, "task", args("answer", text_file=file, dimension="detailed_instruction"))
+
+
+def test_knowledge_parser_is_task_only():
+    parser = argparse.ArgumentParser()
+    nouns = parser.add_subparsers(dest="noun")
+    skill = nouns.add_parser("skill").add_subparsers(dest="verb")
+    task = nouns.add_parser("task").add_subparsers(dest="verb")
+    cc.add_commands(skill, task)
+    parsed = parser.parse_args(["task", "draft", "knowledge", "draft-1", "--text-file", "k.txt"])
+    assert parsed.action == "knowledge"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["skill", "draft", "knowledge", "draft-1", "--text-file", "k.txt"])
+
+
+def test_registration_asks_the_short_profile():
+    from buildrix import cli
+
+    class Client:
+        def profile_options(self):
+            return {"occupation": [{"id": "engineer", "label": "Engineer"}, {"id": "other", "label": "Other"}],
+                    "career_stage": [{"id": "senior", "label": "Senior"}],
+                    "age_range": [{"id": "25_34", "label": "25 to 34"}],
+                    "agent_use": [{"id": "daily", "label": "Daily"}]}
+
+    answers = iter(["2", "Energy auditor", "senior", "", "1"])
+    profile = cli.ask_profile(Client(), read=lambda prompt: next(answers))
+    assert profile == {"occupation": "other", "occupation_other": "Energy auditor",
+                       "career_stage": "senior", "agent_use": "daily"}
+
+    class OldHub:
+        def profile_options(self):
+            return {}
+    assert cli.ask_profile(OldHub(), read=lambda prompt: pytest.fail("should not ask")) == {}
+
+
+def test_register_sends_profile_fields():
+    api = RecordingAPI()
+    api.register("a@b.c", "pw", "A", profile={"occupation": "engineer", "agent_use": "daily"})
+    method, path, sent = api.calls[-1]
+    assert (method, path) == ("POST", "/auth/register")
+    assert sent["json_body"]["occupation"] == "engineer"
+    assert sent["json_body"]["agent_use"] == "daily"

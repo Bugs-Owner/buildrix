@@ -33,10 +33,13 @@ from buildrix.interactive import C, para, rule
 CONDITIONS = [
     "task", "task_instruction", "task_skill", "task_instruction_skill",
 ]
+#: The contributor's original, unstructured request with only the input data.
+#: Measures what structuring the task is worth. Graded by the hub, not uploaded.
+INITIAL = "task_initial"
 
 CONDITION_LABELS = {
     "task":                   "Agent",
-    "task_instruction":       "+ Detailed Instruction",
+    "task_instruction":       "+ Human knowledge",
     "task_skill":             "+ Skill",
     "task_instruction_skill": "+ Instruction + Skill",
 }
@@ -158,7 +161,7 @@ def env_fingerprint(model: str, harness: str, budget: dict,
                     task_digest: str) -> str:
     """Everything that must be identical across the four conditions.
 
-    Deliberately excludes the Skill and the Detailed Instruction — those are
+    Deliberately excludes the Skill and the Human knowledge — those are
     the declared differences. If anything else varies, the fingerprints differ
     and the hub rejects the group.
     """
@@ -430,7 +433,7 @@ def _stage(workspace: Path, package: bytes, condition: str,
     """Build one condition's workspace from scratch.
 
     The Task's public half always goes in. The Skill goes in only for the
-    conditions that declare it, and the Detailed Instruction likewise — those
+    conditions that declare it, and the Human knowledge likewise — those
     two are the entire difference between the four runs.
     """
     with zipfile.ZipFile(io.BytesIO(package)) as z:
@@ -442,6 +445,8 @@ def _stage(workspace: Path, package: bytes, condition: str,
                 continue
             if parts[0].lower() in {"reference", "detailed_instruction.md", "evaluation"}:
                 raise ValueError("Private assets must not be staged in a benchmark workspace")
+            if condition == INITIAL and parts[0] != "inputs":
+                continue  # the structured task (prompt.md, TASK.yaml, ...) is withheld
             dest = workspace.joinpath(*parts)
             if not dest.resolve().is_relative_to(workspace.resolve()):
                 raise ValueError("Unsafe archive path")
@@ -495,6 +500,12 @@ def _prompt_for(condition: str, task: dict, instance: str,
     Instruction conditions use the stored, integrated task revision. Older
     tasks without one retain their original file-based instruction behavior.
     """
+    if condition == INITIAL:
+        return "\n\n".join(p for p in [
+            task.get("initial_request", ""),
+            f"Run this task for instance: {instance}." if instance else "",
+            "Your working directory is the task workspace. Input files are in "
+            "inputs/. Write every deliverable under outputs/."] if p.strip())
     integrated = task.get("instruction_prompt") if "instruction" in condition else ""
     parts = [integrated or task.get("canonical_prompt") or ""]
     if instance:
@@ -652,7 +663,10 @@ def run_benchmark(
 #: directory to cross the wire.
 ARTIFACT_HEAD_BYTES = 8000
 
-_READABLE = {".csv", ".md", ".txt", ".json", ".yaml", ".yml", ".tsv", ".log", ".py"}
+_READABLE = {".csv", ".md", ".txt", ".json", ".yaml", ".yml", ".tsv", ".log", ".py",
+             # Plain-text engineering and code formats agents commonly deliver.
+             ".idf", ".imf", ".epw", ".ddy", ".osm", ".mo", ".xml", ".html", ".htm",
+             ".ipynb", ".m", ".r", ".jl", ".toml", ".ini", ".cfg", ".sh", ".rst", ".tex", ".sql"}
 
 
 def _artifact_list(workspace: Path) -> list[dict]:

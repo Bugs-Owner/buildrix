@@ -1,6 +1,6 @@
 # Private local contribution history
 
-Use this protocol whenever this skill helps develop or revise a task or skill.
+Use this protocol whenever this skill helps develop or revise a task.
 Log visible Buildrix contribution exchanges only: the neutral initial prompt,
 the contributor's original response, local clarification questions and replies,
 proposed revisions, accepted changes, meaningful artifact edits, and hub
@@ -38,12 +38,7 @@ buildrix task draft create --data about.json --context context.json
 buildrix task draft start-session DRAFT_ID --context context.json --journal SESSION.jsonl
 ```
 
-For a skill, preserve the user's own name/description in about.json when
-creating it, then start the same journal with `skill` in place of `task`. Log
-the user's original skill-development request as `role: human, purpose: message`
-before helping author it. No task `capture-initial` command is needed for skills.
-
-Keep the journal outside any skill/package folder that will be published.
+Keep the journal outside any folder that will be published.
 Reuse it across pauses. The header binds it to one hub, draft and session;
 context cannot change in place. A new harness/model gets a new journal on the
 same draft. Use a single writer per journal.
@@ -83,8 +78,8 @@ Use `revision_accepted` for an actual human acceptance, `artifact_edited` for an
 agent's concrete file change (include relative path and exact changed text or
 diff), and `hub_feedback` for the feedback you actually relay. Use `message`
 for relevant exchanges that do not fit those roles. Do not fabricate an answer
-or acceptance to complete a pair. The same protocol uses `skill` for skills.
-Upload the actual files with the normal package/upload commands as well.
+or acceptance to complete a pair.
+Upload the actual files with the normal upload commands as well.
 
 Add `--journal SESSION.jsonl` to **every subsequent draft command**, including
 file uploads, description edits, review, finalization and submission. The CLI

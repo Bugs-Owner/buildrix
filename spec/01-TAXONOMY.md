@@ -1,6 +1,6 @@
 # Domains
 
-Choose the closest domain for a task or skill. Use tags for more specific topics.
+Choose the closest domain for a task. Use tags for more specific topics.
 
 | Domain | ID |
 |---|---|
@@ -13,8 +13,7 @@ Choose the closest domain for a task or skill. Use tags for more specific topics
 | Grid-Interactive & Integrated Energy Systems | `grid-integrated` |
 | Building Data, Semantics & Digital Twins | `data-semantics-twins` |
 
-Skills may also use `general` for cross-cutting tools. Tasks use one of the
-eight domains above.
+Tasks use one of the eight domains above.
 
 Run `buildrix domains` or `buildrix domains --task` for the current choices.
 The hub exposes the taxonomy through `GET /api/domains`.

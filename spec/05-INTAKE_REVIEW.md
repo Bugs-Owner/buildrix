@@ -2,18 +2,19 @@
 
 The browser, CLI and Buildrix skill use the same hub draft workflow.
 
-1. Enter the contribution metadata and describe the work.
-2. Add the required instructions and files.
-3. Read the LLM review and answer its questions or edit the draft.
+1. Fill in About the task, including related stakeholders, and describe the work.
+2. Read the LLM review and answer its questions, edit the draft or add files.
+3. Add your Human knowledge. The reviewer does not check it.
 4. Check the final content and submit.
 
 Review feedback should identify missing information or contradictions and help
 the contributor resolve them. The contributor supplies project facts and
 approves proposed changes. A review error is not an approval.
 
-Task guidance covers seven sections: Objective, Inputs & Resources, Detailed
-Instruction, Environment & Access, Reproducibility, Deliverables and Evaluation.
-Skill review uses the actual uploaded instructions and supporting files.
+The reviewer checks six sections: Objective, Inputs & Resources, Environment &
+Access, Reproducibility, Deliverables and Evaluation. Human knowledge is a
+seventh part, collected on its own step after them. A draft is complete when
+the six reviewed sections are clear.
 
 Drafts can be resumed across interfaces. Revising a publication keeps its ID,
 preserves the current version while editing and requires a fresh review.

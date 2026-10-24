@@ -1,7 +1,6 @@
 # Contributing to Buildrix
 
-Contribute a reusable building engineering skill or a real task you have already
-completed. Use the [browser](https://buildrixhub.onrender.com/#/docs), terminal,
+Contribute a real building engineering task you have already completed. Use the [browser](https://buildrixhub.onrender.com/#/docs), terminal,
 or the [Buildrix skill](skills/buildrix/SKILL.md) inside your local agent.
 All three use the same saved drafts and hub review.
 
@@ -14,52 +13,41 @@ buildrix auth register
 
 If you already have an account, use `buildrix auth login`.
 
-## Develop a skill or task
+## Develop a task
 
 ```sh
-buildrix skill develop
 buildrix task develop
 ```
 
-For a skill, supply your SKILL.md and the supporting files used by your workflow.
-The wizard collects metadata, shows LLM reviewer comments and lets you revise
-before submission. You can also start with an existing package:
-
-```sh
-buildrix skill submit ./my-skill
-```
-
-For a task, start with your own description of work you have completed, as
+Start with your own description of work you have completed, as
 clearly as you would hand it to a teammate. The wizard then helps you clarify
 the task, attach inputs and completed outputs, document the environment and
 reproducibility settings, and fill in a scoring table: the dimensions you
 score with their values for 100 and 0 and weights, then what must be delivered
 and how good it must be. Answer new reviewer questions in the next reply; the
-hub incorporates the clarification into the saved section. Review the revised task before submitting.
+hub incorporates the clarification into the saved section. Then add your Human
+knowledge on its own step: steps, rules of thumb, pitfalls, checkpoints,
+references or code. The reviewer does not check it. Review the revised task
+before submitting.
 
 ## Resume, revise or withdraw
 
 ```sh
-buildrix skill drafts
 buildrix task drafts
-buildrix skill develop --resume DRAFT_ID
 buildrix task develop --resume DRAFT_ID
-buildrix skill revise SKILL_CODE
 buildrix task revise TASK_CODE
 ```
 
-Replace `DRAFT_ID`, `SKILL_CODE` and `TASK_CODE` with the identifiers shown by
+Replace `DRAFT_ID` and `TASK_CODE` with the identifiers shown by
 Buildrix. Revisions keep the published ID, require LLM review and create a new
 version when submitted. The current publication remains available while you edit.
 
-To withdraw an unfinished contribution, use `buildrix skill withdraw DRAFT_ID`
-or `buildrix task withdraw DRAFT_ID`. Original inputs and interaction history
+To withdraw an unfinished task, use `buildrix task withdraw DRAFT_ID`. Original inputs and interaction history
 remain private to the contributor and administrators.
 
 ## References
 
-- [CLI commands](skills/buildrix/references/cli.md), or run `buildrix skill --help` and `buildrix task --help`.
-- [Skill submission guide](skills/buildrix/references/skill-format.md).
+- [CLI commands](skills/buildrix/references/cli.md), or run `buildrix task --help`.
 - [Task submission guide](skills/buildrix/references/task-format.md).
 - [Local agent interaction logging](skills/buildrix/references/local-interactions.md).
 - [Current scaffolding](templates/) for developing packages locally.

@@ -383,6 +383,50 @@ def _add_legacy(sub):
 
 # ==========================================================================
 
+PROFILE_QUESTIONS = [
+    ("occupation", "Occupation"),
+    ("career_stage", "Career stage"),
+    ("age_range", "Age range"),
+    ("agent_use", "How often do you use AI agents"),
+]
+
+
+def ask_profile(client, read=input):
+    """Ask the short contributor profile the website asks at sign-up.
+
+    The choices come from the hub. Every question can be skipped with Enter.
+    Returns only the answered fields.
+    """
+    options = client.profile_options()
+    if not options:
+        return {}
+    print()
+    print("  A few questions about you (press Enter to skip any):")
+    answers = {}
+    for field, title in PROFILE_QUESTIONS:
+        choices = options.get(field) or []
+        if not choices:
+            continue
+        print(f"\n  {title}")
+        for i, choice in enumerate(choices, 1):
+            print(f"    {i}. {choice['label']}")
+        while True:
+            raw = read("  choose: ").strip()
+            if not raw:
+                break
+            if raw.isdigit() and 1 <= int(raw) <= len(choices):
+                answers[field] = choices[int(raw) - 1]["id"]
+                break
+            match = [c["id"] for c in choices if raw.lower() == str(c["id"]).lower()]
+            if match:
+                answers[field] = match[0]
+                break
+            print("    Pick a number from the list, or press Enter to skip.")
+        if field == "occupation" and answers.get(field) == "other":
+            answers["occupation_other"] = read("  Your occupation: ").strip()
+    return answers
+
+
 def cmd_register(args):
     from buildrix.config import set_auth, set_hub_url
     from buildrix.hub_client import HubClient
@@ -401,15 +445,16 @@ def cmd_register(args):
     if password != password2:
         print("error: Passwords don't match")
         return
+    profile = ask_profile(client)
 
-    data = client.register(email, password, display_name, affiliation)
+    data = client.register(email, password, display_name, affiliation, profile=profile)
     set_auth(
         token=data["access_token"],
         user={"id": data["user_id"], "name": data["display_name"], "email": email},
         hub_url=args.hub,
     )
     print(f"\nok Welcome to Buildrix, {data['display_name']}!")
-    print(f"  You're now logged in and ready to push skills.")
+    print(f"  You're now logged in and ready to contribute tasks.")
 
 def cmd_login(args):
     from buildrix.config import set_auth, set_hub_url
@@ -432,7 +477,8 @@ def cmd_login(args):
         if password != password2:
             print("error: Passwords don't match")
             return
-        data = client.register(email, password, display_name, affiliation)
+        profile = ask_profile(client)
+        data = client.register(email, password, display_name, affiliation, profile=profile)
         print(f"\nok Account created! Welcome, {data['display_name']}")
     else:
         password = getpass.getpass("  Password: ")

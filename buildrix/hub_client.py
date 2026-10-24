@@ -43,8 +43,13 @@ class HubClient:
         return data
 
     def register(self, email: str, password: str, display_name: str,
-                 affiliation: str = "", role: str = "contributor") -> dict:
-        """Register a new account."""
+                 affiliation: str = "", role: str = "contributor",
+                 profile: Optional[dict] = None) -> dict:
+        """Register a new account.
+
+        `profile` holds the optional short profile: occupation,
+        occupation_other, career_stage, age_range and agent_use.
+        """
         resp = requests.post(
             self._url("/auth/register"),
             json={
@@ -53,6 +58,7 @@ class HubClient:
                 "display_name": display_name,
                 "affiliation": affiliation,
                 "role": role,
+                **(profile or {}),
             },
             timeout=15,
         )
@@ -60,6 +66,16 @@ class HubClient:
         data = resp.json()
         self.token = data["access_token"]
         return data
+
+    def profile_options(self) -> dict:
+        """The choices for the short contributor profile, or {} on an older hub."""
+        try:
+            resp = requests.get(self._url("/users/profile-options"), timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def me(self) -> dict:
         """Get current user profile."""

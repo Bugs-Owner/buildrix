@@ -113,6 +113,34 @@ def ask_choice(prompt: str, options: list[tuple[str, str]],
         print(C.dim("    Pick a number from the list, or type the id."))
 
 
+def ask_many(prompt: str, options: list[tuple[str, str]],
+             default: Optional[list[str]] = None, required: bool = False) -> list[str]:
+    """Pick any number of a closed set: numbers or ids, separated by commas."""
+    default = [d for d in (default or []) if d in {k for k, _ in options}]
+    print(f"\n  {C.bold(prompt)}")
+    for i, (key, label) in enumerate(options, 1):
+        mark = " *" if key in default else ""
+        print(f"    {C.dim(str(i) + '.')} {label}{C.dim(mark)}")
+    print(C.dim("    Choose one or more, separated by commas."))
+    while True:
+        raw = ask("choose", ",".join(default), required=required)
+        picked, bad = [], []
+        for part in (p.strip() for p in raw.split(",")):
+            if not part:
+                continue
+            if part.isdigit() and 1 <= int(part) <= len(options):
+                key = options[int(part) - 1][0]
+            else:
+                key = next((k for k, _ in options if part.lower() == k.lower()), None)
+            if key is None:
+                bad.append(part)
+            elif key not in picked:
+                picked.append(key)
+        if not bad and (picked or not required):
+            return picked
+        print(C.dim("    Pick numbers from the list, or type the ids."))
+
+
 def ask_block(prompt: str, hint: str = "") -> str:
     """Multi-line input, ended with a lone '.' or EOF.
 

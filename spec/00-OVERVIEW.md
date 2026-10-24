@@ -1,14 +1,12 @@
 # Buildrix formats
 
-A **skill** packages a reusable engineering method in SKILL.md and supporting files.
 A **task** describes real completed work, with inputs, requirements, expected
-deliverables and an evaluation method.
+deliverables and an evaluation method. Contributors submit tasks.
 
-Use the guided contribution workflow to prepare either type for review.
+Use the guided contribution workflow to prepare a task for review.
 The hub supplies the current metadata and submission requirements.
 
 - [Domains](01-TAXONOMY.md)
-- [Skill packages](02-SKILL_FORMAT.md)
 - [Task packages](03-TASK_FORMAT.md)
 - [Contribution review](05-INTAKE_REVIEW.md)
 

@@ -151,6 +151,11 @@ class BuildrixAPI:
     def task_draft_dimension(self, draft_id: str, dim: str, body: dict) -> dict:
         return self.put(f"/tasks/drafts/{draft_id}/dimensions/{dim}", json_body=body, timeout=300)
 
+    def task_draft_knowledge(self, draft_id: str, text: str) -> dict:
+        """Save Human knowledge (stored as `detailed_instruction`). It is never reviewed."""
+        return self.task_draft_dimension(draft_id, "detailed_instruction",
+                                         {"content": text, "review": False})
+
     def task_draft_proposal(self, draft_id: str, dim: str, pid: str,
                             decision: str, text: str = "") -> dict:
         return self.post(
@@ -337,10 +342,16 @@ class BuildrixAPI:
                          json_body={"email": email, "password": password})
 
     def register(self, email: str, password: str, display_name: str,
-                 affiliation: str = "") -> dict:
+                 affiliation: str = "", profile: Optional[dict] = None) -> dict:
+        # profile: optional occupation, occupation_other, career_stage,
+        # age_range and agent_use (choices from profile_options()).
         return self.post("/auth/register", json_body={
             "email": email, "password": password,
-            "display_name": display_name, "affiliation": affiliation})
+            "display_name": display_name, "affiliation": affiliation,
+            **(profile or {})})
+
+    def profile_options(self) -> dict:
+        return self.get("/users/profile-options")
 
     def me(self) -> dict:
         return self.get("/auth/me")

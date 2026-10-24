@@ -33,14 +33,14 @@ def add_commands(skill, task):
         q.set_defaults(workflow_command=True)
         q = commands.add_parser("draft", help="Work with the same saved draft as the web (JSON responses)")
         actions = q.add_subparsers(dest="action", required=True)
-        for action in ("meta", "create", "get", "patch", "describe", "answer", "edit", "rubric",
+        for action in ("meta", "create", "get", "patch", "describe", "answer", "edit", "rubric", "knowledge",
                        "upload", "link", "asset-notes", "remove-file", "review",
                        "finalize", "prompt", "reply", "instructions", "requirements",
                        "package", "download", "proposal", "submit", "log", "withdraw",
                        "start-session", "log-local", "sync-local", "capture-initial"):
             if kind == "task" and action in {"instructions", "requirements", "package", "download"}:
                 continue
-            if kind == "skill" and action in {"answer", "edit", "rubric", "link", "asset-notes", "finalize", "prompt", "reply", "proposal", "capture-initial"}:
+            if kind == "skill" and action in {"answer", "edit", "rubric", "knowledge", "link", "asset-notes", "finalize", "prompt", "reply", "proposal", "capture-initial"}:
                 continue
             a = actions.add_parser(action)
             a.set_defaults(workflow_command=True)
@@ -56,6 +56,9 @@ def add_commands(skill, task):
                                help="UTF-8 JSON file with the Evaluation scoring table (deliverables, stages)")
             if action in ("describe", "answer", "edit", "prompt", "instructions", "log-local", "capture-initial"):
                 a.add_argument("--text-file", required=True, help="UTF-8 text, sent without rewriting")
+            if action == "knowledge":
+                a.add_argument("--text-file", required=True,
+                               help="UTF-8 Human knowledge text; saved as is and never reviewed")
             if action == "reply":
                 a.add_argument("--text-file", default="", help="UTF-8 reply to the reviewer's open points")
                 a.add_argument("--file", action="append", default=[],
@@ -71,7 +74,9 @@ def add_commands(skill, task):
                 a.add_argument("--dimension", default="", help="Task section to review, or all sections")
             if action == "upload":
                 a.add_argument("--file", required=True)
-                a.add_argument("--data", required=True, help="JSON file with dimension, kind, description and usage")
+                a.add_argument("--data", required=True,
+                               help="JSON file with dimension, kind, description and usage "
+                                    "(Human knowledge files: dimension detailed_instruction, kind knowledge, description only)")
             if action in ("asset-notes", "remove-file"):
                 a.add_argument("--asset", required=True)
             if action == "package":
@@ -171,9 +176,16 @@ def draft_action(api, kind, args):
     if action in ("answer", "edit"):
         text = read_text(args.text_file)
         if kind == "task":
+            if args.dimension == "detailed_instruction":
+                # Human knowledge is never reviewed; save it as written.
+                if action == "answer":
+                    raise ValueError("Human knowledge has no reviewer questions. Use draft knowledge.")
+                return api.task_draft_knowledge(args.draft_id, text)
             return api.task_draft_dimension(args.draft_id, args.dimension,
                                            {"answer" if action == "answer" else "content": text, "review": True})
         raise ValueError("Revise the skill instructions or package, then run draft review.")
+    if action == "knowledge":
+        return api.task_draft_knowledge(args.draft_id, read_text(args.text_file))
     if action == "rubric":
         return api.task_draft_dimension(args.draft_id, "evaluation",
                                        {"rubric": read_json(args.data), "review": True})
