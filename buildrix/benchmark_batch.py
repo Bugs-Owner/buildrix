@@ -60,6 +60,12 @@ def prepare(manifest_path: Path, destination: Path, api) -> dict:
     if not spec.get("agents") or not spec.get("pairs"):
         raise ValueError("A study needs agents and task/skill pairs")
     execution = spec.get("execution") or {"backend": "native"}
+    conditions = spec.get("conditions")
+    if conditions is not None and (not conditions or len(set(conditions)) != len(conditions)
+            or not set(conditions) <= set(bench.CONDITIONS[:2] + [bench.INITIAL])
+            or (bench.INITIAL in conditions and len(conditions) > 1)):
+        raise ValueError(f"conditions: distinct values from task, task_instruction; "
+                         f"{bench.INITIAL} runs as its own study (it is graded but not uploaded)")
     timeout = spec.get("timeout_s", 1800)
     for agent in spec["agents"]:
         CLIAgent(**agent, **execution, timeout_s=timeout)
@@ -107,8 +113,15 @@ def prepare(manifest_path: Path, destination: Path, api) -> dict:
         for ref in refs:
             if ref not in snapshots:
                 plan = bench.prepare_task(api, ref)
-                if not (plan.task.get("instruction_prompt") or plan.task.get("detailed_instruction")):
+                if (not conditions or "task_instruction" in conditions) and not (
+                        plan.task.get("instruction_prompt") or plan.task.get("detailed_instruction")):
                     raise ValueError(f"{ref} has no instruction treatment; revise the task first")
+                if conditions and bench.INITIAL in conditions:
+                    # The original request is visible to the task's author and admins only.
+                    initial = (api.get(f"/tasks/{ref}") or {}).get("initial_request") or ""
+                    if not initial.strip():
+                        raise ValueError(f"{ref} has no original request on record (author/admin login needed)")
+                    plan.task["initial_request"] = initial
                 package_rel = f"tasks/{len(snapshots)}.zip"
                 package_path = destination / package_rel
                 package_path.parent.mkdir(exist_ok=True)
@@ -124,6 +137,7 @@ def prepare(manifest_path: Path, destination: Path, api) -> dict:
     study = {"schema": "buildrix-bundle/1", "protocol": 2, "trials": trials,
              "seed": spec.get("seed", 42), "timeout_s": timeout,
              "execution": execution, "jobs": jobs, "matches": matches,
+             "conditions": conditions,
              "hub_url": api.hub_url, "runner_version": bench.RUNNER_VERSION}
     study["visibility"] = spec.get("visibility", "public")
     if study["visibility"] not in ("public", "private"):
@@ -211,6 +225,11 @@ def run_batch(bundle: Path, output: Path, *, api=None, shard_index=0, shard_coun
     return results
 
 
+def model_label(agent: dict) -> str:
+    """Reported model name; the reasoning level is part of the compared system."""
+    return agent["model"] + (f"@{agent['effort']}" if agent.get("effort") else "")
+
+
 def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> dict:
     package = _snapshot_path(bundle, job["package"]).read_bytes()
     skill = _snapshot_path(bundle, job["skill"]) if job["skill"] else None
@@ -218,7 +237,7 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
             skill and bench.digest_path(skill) != job["skill_digest"]):
         raise ValueError("A frozen task or skill package changed")
     agent = factory(**job["agent"], **study["execution"], timeout_s=study["timeout_s"])
-    conditions = bench.conditions_for(skill)
+    conditions = study.get("conditions") or bench.conditions_for(skill)
     schedule = [(i, t, c) for i in job["instances"]
                 for t in range(1, study["trials"] + 1) for c in conditions]
     random.Random(study["seed"]).shuffle(schedule)
@@ -280,10 +299,10 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
             "skill_version": job["skill_version"], "skill_digest": job["skill_digest"],
             "task_id": job["task"]["id"], "task_code": job["task"]["task_code"],
             "task_version": job["task"].get("version", ""), "task_digest": job["package_digest"],
-            "model": job["agent"]["model"], "harness": job["agent"]["provider"],
+            "model": model_label(job["agent"]), "harness": job["agent"]["provider"],
             "agent_version": ", ".join(sorted({r.get("agent_version", "") for r in records}))[:64],
             "buildrix_version": bench._buildrix_version(), "evaluator_version": "pending",
-            "env_fingerprint": bench.env_fingerprint(job["agent"]["model"],
+            "env_fingerprint": bench.env_fingerprint(model_label(job["agent"]),
                 job["agent"]["provider"], {**budget, "execution": study["execution"]}, job["package_digest"]),
             "run_config": config, "records": records, "visibility": study["visibility"]}
 
@@ -332,6 +351,11 @@ def _sync_group(api, directory: Path) -> dict:
             group["run_config"]["grader"] = graded.get("grader", "hub")
             write_json(group_path, group)
         _report(directory, group["records"])
+        if any(r["condition"] == bench.INITIAL for r in group["records"]):
+            # The hub stores only its own condition set; keep the graded result here.
+            response = {"status": "graded_local", "task_code": group["task_code"]}
+            write_json(receipt_path, response)
+            return response
         response = api.benchmark_submit(group)
         write_json(receipt_path, response)
         return response
@@ -341,11 +365,19 @@ def _sync_group(api, directory: Path) -> dict:
         return error
 
 
-def sync(output: Path, api) -> list[dict]:
-    results = []
-    for path in sorted(output.glob("job-*/group.json")):
+def sync(output: Path, api, workers: int = 8) -> list[dict]:
+    """Grade and upload every finished group, several at a time.
+
+    Each group is one independent request chain to the hub, so groups run in
+    parallel; the per-group lock keeps a second sync from touching the same one.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    def one(path):
         with _job_lock(path.parent):
-            results.append(_sync_group(api, path.parent))
+            return _sync_group(api, path.parent)
+    paths = sorted(output.glob("job-*/group.json"))
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        results = list(pool.map(one, paths))
     if not results:
         raise ValueError("No completed groups found in this output directory")
     return results

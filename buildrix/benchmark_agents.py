@@ -2,7 +2,10 @@
 
 Native execution resets homes and caches but is not a security boundary.
 Docker/Apptainer run each condition with only that condition's workspace mounted.
-Authentication uses provider API keys, never the user's agent configuration.
+Authentication uses provider API keys by default. ``auth: subscription`` (native
+backend only) instead passes just the subscription login: CLAUDE_CODE_OAUTH_TOKEN
+(from ``claude setup-token``) or a copy of ``~/.claude/.credentials.json`` for
+Claude, and a copy of ``~/.codex/auth.json`` for Codex. No other personal configuration, skills or memory are inherited.
 """
 from __future__ import annotations
 
@@ -17,6 +20,10 @@ import time
 import uuid
 
 from buildrix.bench import AgentResult
+import re
+
+RATE_LIMIT = re.compile(r"usage limit|rate limit|rate_limit|too many requests|hit your limit|"
+                        r"limit reached|limit will reset|status 429|error 429|\"status\":429")
 
 
 def parse_usage(transcript: str, provider: str) -> dict:
@@ -73,7 +80,7 @@ def parse_usage(transcript: str, provider: str) -> dict:
 class CLIAgent:
     def __init__(self, provider: str, model: str, *, timeout_s: int = 1800,
                  backend: str = "native", image: str = "", cpus: int = 2,
-                 memory_mb: int = 4096):
+                 memory_mb: int = 4096, effort: str = "", auth: str = "api_key"):
         if provider not in ("codex", "claude") or not model or model == "unspecified":
             raise ValueError("Choose codex or claude and an explicit model ID.")
         if backend not in ("native", "docker", "apptainer"):
@@ -85,17 +92,29 @@ class CLIAgent:
         self.provider, self.model = provider, model
         self.timeout_s, self.backend, self.image = timeout_s, backend, image
         self.cpus, self.memory_mb = cpus, memory_mb
+        efforts = ("minimal", "low", "medium", "high", "xhigh") if provider == "codex" else (
+            "low", "medium", "high", "xhigh", "max")
+        if effort and effort not in efforts:
+            raise ValueError(f"{provider} effort must be one of {', '.join(efforts)}")
+        if auth not in ("api_key", "subscription"):
+            raise ValueError("auth must be api_key or subscription")
+        if auth == "subscription" and backend != "native":
+            raise ValueError("Subscription auth is only supported with the native backend")
+        self.effort, self.auth = effort, auth
         self.evidence_dir: Path | None = None
 
     def command(self) -> list[str]:
         if self.provider == "codex":
             return ["codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check",
-                    "--model", self.model, "--sandbox",
+                    "--model", self.model] + (
+                    ["-c", f'model_reasoning_effort="{self.effort}"'] if self.effort else []) + ["--sandbox",
                     "workspace-write" if self.backend == "native" else "danger-full-access",
                     "-"]
         args = ["claude", "-p", "--model", self.model, "--output-format", "stream-json",
                 "--verbose", "--no-session-persistence", "--setting-sources", "",
                 "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+        if self.effort:
+            args += ["--effort", self.effort]
         if self.backend == "native":
             args += ["--permission-mode", "acceptEdits", "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep"]
         else:
@@ -103,9 +122,18 @@ class CLIAgent:
         return args
 
     def run(self, workspace: Path, prompt: str) -> AgentResult:
-        key = "OPENAI_API_KEY" if self.provider == "codex" else "ANTHROPIC_API_KEY"
-        if not os.environ.get(key):
-            return AgentResult(False, error=f"Set {key}; personal agent settings are not inherited.")
+        login_file = None  # subscription login copied into the fresh home
+        if self.auth == "subscription":
+            key = "CLAUDE_CODE_OAUTH_TOKEN"
+            if not (self.provider == "claude" and os.environ.get(key)):
+                login_file = self._login_file()
+                if not login_file.is_file():
+                    return AgentResult(False, error=f"No {self.provider} login at {login_file}; "
+                                       f"run `{self.provider} login` (or set CLAUDE_CODE_OAUTH_TOKEN).")
+        else:
+            key = "OPENAI_API_KEY" if self.provider == "codex" else "ANTHROPIC_API_KEY"
+            if not os.environ.get(key):
+                return AgentResult(False, error=f"Set {key}; personal agent settings are not inherited.")
         workspace = workspace.resolve()
         started = time.monotonic()
         container_name = "buildrix-" + uuid.uuid4().hex
@@ -114,8 +142,9 @@ class CLIAgent:
             # Only OS launch essentials and this provider credential cross over.
             env = {k: v for k, v in os.environ.items() if k.upper() in {
                 "PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL"}}
-            env[key] = os.environ[key]
-            if self.provider == "codex":
+            if self.auth == "api_key" or (self.provider == "claude" and not login_file):
+                env[key] = os.environ[key]
+            if self.provider == "codex" and self.auth == "api_key":
                 env["CODEX_API_KEY"] = env[key]
             runtime_home = str(state_path) if self.backend == "native" else "/tmp/buildrix-home"
             isolated = {"HOME": runtime_home, "USERPROFILE": runtime_home,
@@ -134,6 +163,8 @@ class CLIAgent:
                 for value in isolated.values():
                     if value.startswith(runtime_home):
                         Path(value).mkdir(parents=True, exist_ok=True)
+                if login_file:
+                    shutil.copyfile(login_file, self._login_copy(isolated))
                 executable = shutil.which(self.provider)
                 if not executable:
                     return AgentResult(False, error=f"{self.provider} is not on PATH")
@@ -201,17 +232,49 @@ class CLIAgent:
                         subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=30)
                     except (OSError, subprocess.TimeoutExpired):
                         error = error or "Container cleanup failed; check Docker before resuming"
+            if login_file:
+                self._return_refreshed_login(self._login_copy(isolated), login_file)
             transcript = stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.exists() else ""
             stderr = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
             if self.backend != "native":
                 agent_version = next((line.split("=", 1)[1][:200] for line in stderr.splitlines()
                     if line.startswith("BUILDRIX_AGENT_VERSION=")), "")
             usage = parse_usage(transcript, self.provider)
+            # Subscription caps are infrastructure failures, not model failures.
+            limited = not error and (not usage["completed_event"] or usage.get("agent_error") or returncode)
+            # Claude streams routine '"status":"allowed"' rate-limit events; ignore those.
+            tail = "\n".join(line for line in transcript[-4000:].splitlines()
+                              if '"rate_limit_event"' not in line or '"allowed"' not in line)
+            if limited and RATE_LIMIT.search((tail + stderr[-4000:]).lower()):
+                error = "RATE_LIMITED: provider usage limit reached; rerun this condition"
             ok = returncode == 0 and not error and not usage.get("agent_error") and usage["completed_event"]
             return AgentResult(ok, transcript=transcript, wall_clock_s=round(time.monotonic()-started, 3),
                 tokens=usage["total_tokens"] or 0, tool_calls=usage["tool_calls"], usage=usage,
                 error=error or ("" if ok else f"Agent failed or returned no completion event (exit {returncode})"),
                 stderr=stderr, agent_version=agent_version)
+
+    def _login_file(self) -> Path:
+        if self.provider == "codex":
+            return Path(os.environ.get("CODEX_AUTH_FILE") or Path.home() / ".codex" / "auth.json")
+        return Path(os.environ.get("CLAUDE_CREDENTIALS_FILE")
+                    or Path.home() / ".claude" / ".credentials.json")
+
+    def _login_copy(self, isolated: dict) -> Path:
+        if self.provider == "codex":
+            return Path(isolated["CODEX_HOME"]) / "auth.json"
+        return Path(isolated["CLAUDE_CONFIG_DIR"]) / ".credentials.json"
+
+    @staticmethod
+    def _return_refreshed_login(used: Path, source: Path):
+        """The CLI may rotate its refresh token mid-run; keep the newest login."""
+        try:
+            fresh = used.read_bytes()
+            if fresh and fresh != source.read_bytes():
+                tmp = source.with_name(source.name + ".buildrix-tmp")
+                tmp.write_bytes(fresh)
+                os.replace(tmp, source)
+        except OSError:
+            pass
 
     @staticmethod
     def _stop(proc):

@@ -243,3 +243,122 @@ def test_grading_outage_preserves_evidence_for_sync(tmp_path):
     hub.benchmark_grade = original
     assert batch.sync(output, hub)[0]["group_id"] == "g1"
     assert len(FakeAgent.calls) == 2
+
+
+def test_effort_flags_and_model_label():
+    assert CLIAgent("claude", "m", effort="high").command()[-2:] == ["--effort", "high"] or \
+        "--effort" in CLIAgent("claude", "m", effort="high").command()
+    codex = CLIAgent("codex", "m", effort="low").command()
+    assert 'model_reasoning_effort="low"' in codex
+    assert "--effort" not in CLIAgent("claude", "m").command()
+    with pytest.raises(ValueError):
+        CLIAgent("claude", "m", effort="minimal")
+    assert batch.model_label({"model": "m", "effort": "high"}) == "m@high"
+    assert batch.model_label({"model": "m"}) == "m"
+
+
+def test_subscription_auth_passes_only_login(tmp_path, monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+    captured = []
+    login = tmp_path / "auth.json"
+    login.write_text('{"tokens":"old"}')
+    monkeypatch.setenv("CODEX_AUTH_FILE", str(login))
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "should-not-pass")
+
+    class Process:
+        returncode = 0
+        def __init__(self, command, **kwargs):
+            env = kwargs["env"]
+            captured.append(env)
+            if "CODEX_HOME" in env and Path(env["CODEX_HOME"], "auth.json").exists():
+                Path(env["CODEX_HOME"], "auth.json").write_text('{"tokens":"new"}')
+                kwargs["stdout"].write(b'{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}\n')
+            else:
+                kwargs["stdout"].write(b'{"type":"result","usage":{}}\n')
+        def communicate(self, prompt, timeout):
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", Process)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="v", returncode=0))
+    monkeypatch.setattr("shutil.which", lambda name: name)
+    work = tmp_path / "w"
+    work.mkdir()
+    assert CLIAgent("codex", "m", auth="subscription").run(work, "task").ok
+    assert login.read_text() == '{"tokens":"new"}'
+    assert "OPENAI_API_KEY" not in captured[0] and "CODEX_API_KEY" not in captured[0]
+    assert CLIAgent("claude", "m", auth="subscription").run(work, "task").ok
+    assert captured[1]["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth"
+    assert "ANTHROPIC_API_KEY" not in captured[1]
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN")
+    creds = tmp_path / "creds.json"
+    creds.write_text("claude-login")
+    monkeypatch.setenv("CLAUDE_CREDENTIALS_FILE", str(creds))
+    seen = []
+    monkeypatch.setattr(subprocess, "Popen", lambda command, **kw: (
+        seen.append(Path(kw["env"]["CLAUDE_CONFIG_DIR"], ".credentials.json").read_text()),
+        kw["stdout"].write(b'{"type":"result","usage":{}}\n'),
+        SimpleNamespace(returncode=0, communicate=lambda *a, **k: None))[-1])
+    assert CLIAgent("claude", "m", auth="subscription").run(work, "task").ok
+    assert seen == ["claude-login"]
+    with pytest.raises(ValueError):
+        CLIAgent("claude", "m", auth="subscription", backend="docker", image="i")
+
+
+def test_routine_rate_limit_events_and_timeouts_are_not_tagged(tmp_path, monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth")
+    outputs = []
+
+    class Process:
+        returncode = 1
+        def __init__(self, command, **kwargs):
+            kwargs["stdout"].write(outputs.pop(0))
+        def communicate(self, prompt, timeout):
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", Process)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="v", returncode=0))
+    monkeypatch.setattr("shutil.which", lambda name: name)
+    agent = CLIAgent("claude", "m", auth="subscription")
+    outputs.append(b'{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}\n')
+    assert "RATE_LIMITED" not in agent.run(tmp_path, "task").error
+    outputs.append(b'{"type":"result","is_error":true,"result":"Claude AI usage limit reached"}\n')
+    assert agent.run(tmp_path, "task").error.startswith("RATE_LIMITED")
+
+
+def test_initial_request_condition_withholds_structured_task(tmp_path):
+    package = io.BytesIO()
+    with zipfile.ZipFile(package, "w") as z:
+        z.writestr("T-1/prompt.md", "full structured task")
+        z.writestr("T-1/TASK.yaml", "structured: yes")
+        z.writestr("T-1/inputs/data.csv", "a,b\n1,2\n")
+    bench._stage(tmp_path, package.getvalue(), bench.INITIAL, None, "", "")
+    staged = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
+    assert staged == ["inputs/data.csv"]
+    prompt = bench._prompt_for(bench.INITIAL, {"initial_request": "fit a model pls",
+        "canonical_prompt": "full structured task"}, "", "", "")
+    assert prompt.startswith("fit a model pls") and "full structured task" not in prompt
+    assert "inputs/" in prompt and "outputs/" in prompt
+
+
+def test_initial_request_study_is_graded_locally_not_uploaded(tmp_path):
+    FakeAgent.calls = []
+    manifest = tmp_path / "study.json"
+    batch.write_json(manifest, {"schema": "buildrix-study/1", "trials": 1, "conditions": [bench.INITIAL],
+        "agents": [{"provider": "codex", "model": "fixed-model"}],
+        "pairs": [{"tasks": ["T001"]}], "execution": {"backend": "native"}})
+    hub = Hub()
+    hub.get = lambda path: {"initial_request": "just compute it"} if path == "/tasks/T001" else {}
+    batch.prepare(manifest, tmp_path / "bundle", hub)
+    result = batch.run_batch(tmp_path / "bundle", tmp_path / "results", api=hub, agent_factory=FakeAgent)
+    assert result[0]["status"] == "graded_local" and not hub.uploads
+    assert len(FakeAgent.calls) == 1 and FakeAgent.calls[0][1].startswith("just compute it")
+    group = batch.read_json(next((tmp_path / "results").glob("job-*/group.json")))
+    assert [r["condition"] for r in group["records"]] == [bench.INITIAL] and group["records"][0]["score"] == 0.5
+    batch.write_json(manifest, {**batch.read_json(manifest), "conditions": ["task", bench.INITIAL]})
+    with pytest.raises(ValueError):
+        batch.prepare(manifest, tmp_path / "bundle2", hub)
