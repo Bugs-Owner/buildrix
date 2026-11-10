@@ -1,7 +1,16 @@
 schema: buildrix-study/1
 trials: 3
 seed: 42
-timeout_s: 1800
+# Time per run is set by the study, per task, the same for every agent.
+# (An older `timeout_s: N` still works and means time.default_s: N.)
+time:
+  default_s: 3600
+  # tasks:                      # tasks that legitimately need longer
+  #   YOUR_LONG_TASK_CODE: 36000
+  # reference:                  # or: factor x a reference run on this machine
+  #   results: ./reference-results
+  #   model: YOUR_REFERENCE_MODEL_ID
+  #   factor: 3
 visibility: public
 
 # Use native for a development smoke test with trusted packages.

@@ -6,6 +6,13 @@ Authentication uses provider API keys by default. ``auth: subscription`` (native
 backend only) instead passes just the subscription login: CLAUDE_CODE_OAUTH_TOKEN
 (from ``claude setup-token``) or a copy of ``~/.claude/.credentials.json`` for
 Claude, and a copy of ``~/.codex/auth.json`` for Codex. No other personal configuration, skills or memory are inherited.
+
+Time. A CLI agent runs as one non-interactive process, so it cannot be messaged
+mid-run. The runner keeps ``TIME_REMAINING.txt`` in the workspace current
+(the brief tells the agent to read it), and ``BASH_ENV`` makes every bash
+command the agent runs print that file to stderr once time is short. At the
+deadline the agent gets SIGTERM (``docker stop`` for Docker), is killed after a
+grace period, and whatever it wrote to outputs/ is kept and graded.
 """
 from __future__ import annotations
 
@@ -19,11 +26,48 @@ import tempfile
 import time
 import uuid
 
-from buildrix.bench import AgentResult
+from buildrix.bench import AgentResult, _duration
 import re
 
 RATE_LIMIT = re.compile(r"usage limit|rate limit|rate_limit|too many requests|hit your limit|"
                         r"limit reached|limit will reset|status 429|error 429|\"status\":429")
+
+
+#: Share of the time budget used when the agent is warned, and what it is told.
+NOTICES = ((0.75, "TIME IS SHORT",
+            "Finish the step you are on, make sure every deliverable and any report in "
+            "outputs/ are complete and current, and start no new explorations."),
+           (0.90, "FINAL WARNING",
+            "Stop exploring now. Finalize outputs/ and finish; the run is stopped at "
+            "the deadline."))
+CLOCK_FILE = "TIME_REMAINING.txt"
+CLOCK_EVERY_S = 60   # how often the file is refreshed
+STOP_GRACE_S = 30    # between the polite stop and the kill
+# Sourced by every non-interactive bash (BASH_ENV): show the warning once one is due.
+BASH_NOTICE = """# Written by the Buildrix runner. Shows TIME_REMAINING.txt once time is short.
+f="${BASH_SOURCE%/*}/TIME_REMAINING.txt"
+if [ -r "$f" ] && read -r line < "$f" && [ "${line#status: ok}" = "$line" ]; then cat "$f" >&2; fi
+"""
+
+
+def write_clock(workspace: Path, budget_s: int, deadline: float, status: str, advice: str = ""):
+    """Refresh TIME_REMAINING.txt. A failed refresh is skipped, never fatal."""
+    left = deadline - time.time()
+    clock = lambda t: time.strftime("%H:%M UTC", time.gmtime(t))
+    text = (f"status: {status}\n"
+            f"Time budget: {_duration(budget_s)}, ending {clock(deadline)}.\n"
+            f"Time left: {_duration(left)} (as of {clock(time.time())}; "
+            f"updated every minute).\n" + (advice + "\n" if advice else ""))
+    temporary = workspace / f".{CLOCK_FILE}.tmp"
+    # On Windows the agent (or a virus scanner) reading the file blocks the
+    # replacement for a moment; retry briefly so a warning is not dropped.
+    for attempt in range(10):
+        try:
+            temporary.write_text(text, encoding="utf-8", newline="\n")  # read by bash
+            os.replace(temporary, workspace / CLOCK_FILE)
+            return
+        except OSError:
+            time.sleep(0.02 * (attempt + 1))
 
 
 def parse_usage(transcript: str, provider: str) -> dict:
@@ -102,6 +146,9 @@ class CLIAgent:
             raise ValueError("Subscription auth is only supported with the native backend")
         self.effort, self.auth = effort, auth
         self.evidence_dir: Path | None = None
+        # Absolute end of the next run (epoch seconds); the batch runner sets it
+        # so the brief and the clock agree. Without it: now + timeout_s.
+        self.deadline: float | None = None
 
     def command(self) -> list[str]:
         if self.provider == "codex":
@@ -155,7 +202,12 @@ class CLIAgent:
                 "APPDATA": runtime_home + "/.config", "LOCALAPPDATA": runtime_home + "/.cache",
                 "TMPDIR": runtime_home + "/tmp", "TMP": runtime_home + "/tmp",
                 "TEMP": runtime_home + "/tmp", "PYTHONUTF8": "1",
-                "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+                "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+                "BASH_ENV": (workspace.as_posix() if self.backend == "native" else "/workspace")
+                            + "/.buildrix-time.sh"}
+            deadline, self.deadline = self.deadline or time.time() + self.timeout_s, None
+            (workspace / ".buildrix-time.sh").write_text(BASH_NOTICE, encoding="utf-8", newline="\n")
+            write_clock(workspace, self.timeout_s, deadline, "ok")
             command = self.command()
             agent_version = ""
             if self.backend == "native":
@@ -211,18 +263,21 @@ class CLIAgent:
             stdout_path, stderr_path = log_path / "transcript.jsonl", log_path / "stderr.txt"
             error = ""
             returncode = None
+            timed_out, notices = False, []
             try:
                 with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
                     proc = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.PIPE,
                         stdout=stdout, stderr=stderr, start_new_session=os.name != "nt")
                     try:
-                        proc.communicate(prompt.encode(), timeout=self.timeout_s)
-                    except subprocess.TimeoutExpired:
-                        error = f"Agent exceeded {self.timeout_s}s"
-                        self._stop(proc)
+                        timed_out = self._wait(proc, prompt.encode(), workspace, deadline, notices)
                     except BaseException:
-                        self._stop(proc)
+                        self._stop(proc, container_name)
                         raise
+                    if timed_out:
+                        error = f"TIMED_OUT: the time budget of {self.timeout_s}s ran out"
+                        self._stop(proc, container_name, STOP_GRACE_S)
+                        write_clock(workspace, self.timeout_s, deadline, "STOPPED",
+                                    "The time budget ran out and the run was stopped.")
                     returncode = proc.returncode
             except OSError as exc:
                 error = f"Could not start agent: {exc}"
@@ -251,7 +306,31 @@ class CLIAgent:
             return AgentResult(ok, transcript=transcript, wall_clock_s=round(time.monotonic()-started, 3),
                 tokens=usage["total_tokens"] or 0, tool_calls=usage["tool_calls"], usage=usage,
                 error=error or ("" if ok else f"Agent failed or returned no completion event (exit {returncode})"),
-                stderr=stderr, agent_version=agent_version)
+                stderr=stderr, agent_version=agent_version, timed_out=timed_out, time_notices=notices)
+
+    def _wait(self, proc, prompt: bytes, workspace: Path, deadline: float, notices: list) -> bool:
+        """Feed the prompt and wait, keeping the clock file current.
+
+        Returns True when the deadline passed with the agent still running.
+        ``notices`` collects the second at which each warning was first written.
+        """
+        started, data = time.time(), prompt
+        while True:
+            left = deadline - time.time()
+            if left <= 0:
+                return True
+            due = [n for n in NOTICES if left <= (1 - n[0]) * self.timeout_s]
+            if len(due) > len(notices):
+                notices.extend([round(time.time() - started, 1)] * (len(due) - len(notices)))
+            status, advice = (due[-1][1], due[-1][2]) if due else ("ok", "")
+            write_clock(workspace, self.timeout_s, deadline, status, advice)
+            # Wake for the next refresh, the next warning or the deadline.
+            wake = [CLOCK_EVERY_S, left] + [left - (1 - n[0]) * self.timeout_s for n in NOTICES[len(due):]]
+            try:
+                proc.communicate(data, timeout=max(0.05, min(wake)))
+                return False
+            except subprocess.TimeoutExpired:
+                data = None  # the prompt went in on the first call
 
     def _login_file(self) -> Path:
         if self.provider == "codex":
@@ -276,8 +355,26 @@ class CLIAgent:
         except OSError:
             pass
 
-    @staticmethod
-    def _stop(proc):
+    def _stop(self, proc, container_name: str = "", grace_s: float = 0):
+        """Stop the agent: a polite stop first when grace_s > 0, then the kill.
+
+        The polite stop lets in-flight file writes finish; the agent's chance to
+        wrap up was the warnings before the deadline. Native Windows has no
+        polite stop for a console process tree, so it is killed at once.
+        """
+        polite = self.backend == "docker" or os.name != "nt"
+        if grace_s and polite and proc.poll() is None:
+            try:
+                if self.backend == "docker":
+                    subprocess.run(["docker", "stop", "-t", str(int(grace_s)), container_name],
+                                   capture_output=True, timeout=grace_s + 30)
+                else:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=grace_s)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        # Always end with the kill: children that outlived the agent (a training
+        # script, say) must not keep writing to outputs/ while it is collected.
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
         else:

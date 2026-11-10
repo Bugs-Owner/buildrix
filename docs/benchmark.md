@@ -21,7 +21,7 @@ buildrix benchmark batch --bundle bundle --output results
 ```
 
 Preparation snapshots public task packages, instruction treatments, skills,
-models, time limits, trial count and execution settings. It registers each group
+models, per-task time budgets, trial count and execution settings. It registers each group
 with the hub before any agent starts. The author receives the same public input
 package as every other benchmark runner; private reference answers stay on the
 hub. Updating a task after preparation prevents grading against the new answer
@@ -43,6 +43,46 @@ Omit `--skill` for a task-only comparison. This runs one trial; use a study for
 repeated measurements. `--agent` remains a legacy custom-shell adapter without
 the built-in adapters' home isolation or durable study evidence; use `--provider`
 for research runs. No command starts a paid model merely to test configuration.
+
+## Time budgets
+
+Contributors do not set run time; the study does, per task, because machines
+differ. `prepare` freezes one budget per task, so every agent and condition on
+a task gets the same one:
+
+```yaml
+time:
+  default_s: 3600          # tasks not listed below (older specs: timeout_s)
+  tasks:
+    T018: 36000            # an explicit per-task budget wins
+  reference:               # optional, for tasks without an explicit budget
+    results: ./reference-results
+    model: claude-opus-5-5 # optional: only this agent's runs count
+    factor: 3
+```
+
+With `reference`, run a reference agent on the study's machine first (a
+generous budget, ordinary `prepare`/`batch`), then point `results` at that
+results directory. A task's budget becomes `factor` x its longest completed
+reference wall time, rounded up to a minute. Failed or timed-out reference runs
+do not count; tasks without a completed reference run get `default_s`.
+
+The agent is told its budget and the deadline (UTC) in its brief, and asked to
+write deliverables early, keep them current, and finalize when time is short.
+The runner keeps `TIME_REMAINING.txt` in the workspace up to date (every
+minute) and changes its status to `TIME IS SHORT` at 75% and `FINAL WARNING`
+at 90% of the budget. Through `BASH_ENV`, every bash command the agent runs
+after that also prints the file to stderr, so the warning reaches an agent that
+never reads the file, as long as its shell is bash. At the deadline the agent
+gets SIGTERM (`docker stop` for Docker; native Windows is killed at once) and
+is killed 30 s later. Its outputs are archived and graded as usual and the run
+is marked `timed_out`; it counts as the agent's result, not a run error.
+
+Each record keeps `time_budget_s`, `time_budget_source`, the seconds at which
+warnings were written (`time_notices_s`) and `machine`: OS, architecture, CPU
+model and count, usable CPUs, memory, cgroup memory limit, NVIDIA GPUs and the
+Slurm allocation when present. No hostname, user or path is recorded. The
+group's `run_config` carries the budget and the machines it ran on.
 
 ## Experimental comparisons
 

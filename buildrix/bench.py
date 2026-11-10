@@ -44,7 +44,9 @@ CONDITION_LABELS = {
     "task_instruction_skill": "+ Instruction + Skill",
 }
 
-RUNNER_VERSION = "2.0.0"
+#: Bump when what an agent sees or how a run is stopped changes; a prepared
+#: study only runs with the version that prepared it.
+RUNNER_VERSION = "2.1.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -179,6 +181,79 @@ def env_fingerprint(model: str, harness: str, budget: dict,
     return sha256_bytes(blob.encode())
 
 
+def machine_info() -> dict:
+    """The compute a run had, without the hostname, user or paths.
+
+    Recorded with every run so a time budget can be read against the machine
+    it was spent on. Values that cannot be read are None, never guessed.
+    """
+    info = {"os": platform.system(), "release": platform.release(),
+            "arch": platform.machine(), "python": platform.python_version(),
+            "cpu_model": platform.processor() or None, "cpu_count": os.cpu_count(),
+            "cpus_usable": None, "memory_mb": None, "memory_limit_mb": None, "gpus": []}
+    if hasattr(os, "sched_getaffinity"):
+        info["cpus_usable"] = len(os.sched_getaffinity(0))  # a Slurm/taskset allocation
+    try:
+        if Path("/proc/meminfo").exists():
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                if line.startswith("MemTotal:"):
+                    info["memory_mb"] = int(line.split()[1]) // 1024
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                if line.startswith("model name"):
+                    info["cpu_model"] = line.split(":", 1)[1].strip()
+                    break
+            limit = Path("/sys/fs/cgroup/memory.max")  # cgroup v2: Slurm, containers
+            if limit.exists() and limit.read_text().strip().isdigit():
+                info["memory_limit_mb"] = int(limit.read_text()) // 2**20
+        elif os.name == "nt":
+            import ctypes
+            class Status(ctypes.Structure):
+                _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong)] + [
+                    (name, ctypes.c_ulonglong) for name in ("total", "free", "page_total",
+                     "page_free", "virtual_total", "virtual_free", "extended")]
+            status = Status(length=ctypes.sizeof(Status))
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                info["memory_mb"] = status.total // 2**20
+        elif platform.system() == "Darwin":
+            out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=10)
+            info["memory_mb"] = int(out.stdout) // 2**20
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    if shutil.which("nvidia-smi"):
+        try:
+            out = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total",
+                                  "--format=csv,noheader"], capture_output=True, text=True, timeout=20)
+            info["gpus"] = [line.strip() for line in out.stdout.splitlines() if line.strip()]
+        except (OSError, subprocess.SubprocessError):
+            pass
+    slurm = {k: os.environ[v] for k, v in (("partition", "SLURM_JOB_PARTITION"),
+             ("cpus_per_task", "SLURM_CPUS_PER_TASK"), ("mem_per_node_mb", "SLURM_MEM_PER_NODE"),
+             ("gpus", "SLURM_GPUS_ON_NODE")) if os.environ.get(v)}
+    if slurm:
+        info["slurm"] = slurm
+    return info
+
+
+def _duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds >= 2 * 3600:
+        return f"{seconds / 3600:.1f} hours".replace(".0 ", " ")
+    return f"{round(seconds / 60)} minutes" if seconds >= 120 else f"{seconds} seconds"
+
+
+def time_brief(budget_s: int, deadline: float) -> str:
+    """What every agent is told about its time, in the same words for all."""
+    end = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(deadline))
+    return (f"Time budget: {_duration(budget_s)} of wall-clock time, until {end}. "
+            "At that time the run is stopped and graded on whatever is in outputs/. "
+            "Write a first version of every deliverable early and keep it updated as "
+            "you improve it, so outputs/ always holds your best complete answer. "
+            "TIME_REMAINING.txt in the workspace shows the time left; read it between "
+            "steps (`cat TIME_REMAINING.txt`) and avoid single commands that run longer "
+            "than the time left. When it says time is short, stop exploring, finalize the "
+            "deliverables and any report in outputs/, and finish.")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Agent adapters
 # ═══════════════════════════════════════════════════════════════════════════
@@ -194,6 +269,9 @@ class AgentResult:
     usage: dict = field(default_factory=dict)
     stderr: str = ""
     agent_version: str = ""
+    timed_out: bool = False
+    #: Seconds into the run at which each time warning was written.
+    time_notices: list = field(default_factory=list)
 
 
 class CommandAgent:
