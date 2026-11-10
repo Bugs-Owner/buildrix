@@ -3,8 +3,11 @@
 The bundle is an operator artifact. Only a single condition's inputs are staged
 into an agent workspace; the study, other trials and reports stay outside it.
 
-Time budgets belong to the study, not the task's contributor, and are set per
-task when the study is prepared, so every agent on a task gets the same one:
+Time budgets belong to the study, not the task's contributor. A budget is the
+time a run is expected to take; a run that keeps making progress is extended
+up to a ceiling, a stalled one is stopped (rules in time_watch). Budgets are
+set per task when the study is prepared, so every agent on a task gets the
+same budget, extension rule and ceiling:
 
     time:
       default_s: 3600        # any task not listed below (`timeout_s` is the old name)
@@ -13,8 +16,12 @@ task when the study is prepared, so every agent on a task gets the same one:
         results: ./reference-results   # results dir of an earlier study, same machine
         model: claude-opus-5-5         # optional: only this agent's runs
         factor: 3
+      min_s: 900             # budgets below this are raised to it
+      extend: 0.5            # each extension, as a share of the budget
+      ceiling: 4             # hard stop, as a multiple of the budget
+      stall_s: 1200          # stop after this long with nothing happening
 
-Each run records its budget, how it was set and the machine it ran on.
+Each run records its budget, extensions, stop reason and the machine it ran on.
 """
 from __future__ import annotations
 
@@ -182,8 +189,13 @@ class _TimeBudgets:
         self.default = time_spec.get("default_s", spec.get("timeout_s", 1800))
         self.overrides = dict(time_spec.get("tasks") or {})
         self.unused = set(self.overrides)
-        for value in [self.default, *self.overrides.values()]:
+        self.min_s, self.stall_s = time_spec.get("min_s", 900), time_spec.get("stall_s", 1200)
+        for value in [self.default, self.min_s, self.stall_s, *self.overrides.values()]:
             _check_seconds(value)
+        self.extend, self.ceiling = time_spec.get("extend", 0.5), time_spec.get("ceiling", 4)
+        for name, value, low in (("extend", self.extend, 0), ("ceiling", self.ceiling, 1)):
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= low:
+                raise ValueError(f"time.{name} must be a number above {low}")
         reference = time_spec.get("reference") or {}
         if reference and not reference.get("results"):
             raise ValueError("time.reference needs results: the reference run's results directory")
@@ -194,6 +206,14 @@ class _TimeBudgets:
         self.reference = reference_wall_times(base / reference["results"], self.model) if reference else {}
 
     def for_task(self, ref: str, code: str) -> dict:
+        budget = self._budget(ref, code)
+        if budget["wall_clock_s"] < self.min_s:
+            budget = {**budget, "wall_clock_s": self.min_s, "raised_from_s": budget["wall_clock_s"]}
+        seconds = budget["wall_clock_s"]
+        return {**budget, "extend_s": math.ceil(self.extend * seconds),
+                "ceiling_s": math.ceil(self.ceiling * seconds), "stall_s": self.stall_s}
+
+    def _budget(self, ref: str, code: str) -> dict:
         for key in (code, ref):
             if key in self.overrides:
                 self.unused.discard(key)
@@ -217,7 +237,7 @@ def reference_wall_times(results: Path, model: str = "") -> dict:
 
     Run the reference agent on the study's machine first (with a generous
     budget), then point ``time.reference.results`` at that results directory.
-    Runs that failed or timed out are not a reference.
+    Runs that failed or were stopped are not a reference.
     """
     groups = sorted(results.glob("job-*/group.json"))
     if not groups:
@@ -304,8 +324,8 @@ def run_batch(bundle: Path, output: Path, *, api=None, shard_index=0, shard_coun
                 results.append(_sync_group(api, directory))
             else:
                 results.append({"job": job["id"], "status": "awaiting_upload"})
-            # A timed-out run is a measurement (graded on what it left), not an error.
-            results[-1]["run_errors"] = sum(r.get("status") not in ("completed", "timed_out")
+            # A run the runner stopped is a measurement (graded on what it left), not an error.
+            results[-1]["run_errors"] = sum(r.get("status") not in ("completed", "stopped")
                                             for r in group["records"])
     return results
 
@@ -322,7 +342,8 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
             skill and bench.digest_path(skill) != job["skill_digest"]):
         raise ValueError("A frozen task or skill package changed")
     budget = job["time_budget"]
-    agent = factory(**job["agent"], **study["execution"], timeout_s=budget["wall_clock_s"])
+    agent = factory(**job["agent"], **study["execution"], timeout_s=budget["wall_clock_s"],
+                    extend_s=budget["extend_s"], ceiling_s=budget["ceiling_s"], stall_s=budget["stall_s"])
     machine = bench.machine_info()
     conditions = study.get("conditions") or bench.conditions_for(skill)
     schedule = [(i, t, c) for i in job["instances"]
@@ -355,9 +376,10 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
                              job["task"].get("detailed_instruction", ""), job["skill_name"])
                 prompt = bench._prompt_for(condition, job["task"], instance,
                     job["task"].get("detailed_instruction", ""), job["skill_name"])
-                # The clock starts now; the brief and the agent's deadline agree.
-                agent.deadline = time.time() + budget["wall_clock_s"]
-                prompt += "\n\n" + bench.time_brief(budget["wall_clock_s"], agent.deadline)
+                # The clock starts now; the brief and the runner's watch agree.
+                agent.clock_start = time.time()
+                prompt += "\n\n" + bench.time_brief(budget["wall_clock_s"], agent.clock_start,
+                                                      budget["ceiling_s"])
                 (record_dir / "prompt.md").write_text(prompt, encoding="utf-8")
                 agent.evidence_dir = record_dir
                 result = agent.run(workspace, prompt)
@@ -368,10 +390,11 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
                     for path in sorted((workspace / "outputs").rglob("*")):
                         if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(workspace):
                             archive.write(path, path.relative_to(workspace).as_posix())
-                # Outputs were archived above whether or not the run finished in time.
-                record.update(status="completed" if result.ok else
-                              "timed_out" if result.timed_out else "failed",
-                    time_notices_s=result.time_notices,
+                # Outputs were archived above however the run ended.
+                stopped = result.stop_reason not in ("", "exited")
+                record.update(status="completed" if result.ok else "stopped" if stopped else "failed",
+                    stop_reason=result.stop_reason or "exited", extensions=result.extensions,
+                    time_notices=result.time_notices,
                     agent_version=result.agent_version,
                     artifacts=artifacts, usage=result.usage, wall_clock_s=result.wall_clock_s,
                     tokens=result.tokens, tool_calls=result.tool_calls, error=result.error,
@@ -389,7 +412,8 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
             machines.append(record["machine"])
     config = {"protocol": 2, "trials": study["trials"], "seed": study["seed"],
               "conditions": conditions, "execution": study["execution"],
-              "study_digest": study["digest"], "budget": {"wall_clock_s": budget["wall_clock_s"]},
+              "study_digest": study["digest"],
+              "budget": {k: budget[k] for k in ("wall_clock_s", "extend_s", "ceiling_s", "stall_s")},
               "time_budget": budget, "machines": machines,
               "snapshot_digest": job["task"].get("snapshot_digest", ""),
               "job_id": job["id"], "hub_url": study["hub_url"]}
@@ -408,8 +432,8 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
 
 def _report(directory: Path, records: list[dict]):
     with (directory / "measurements.csv").open("w", newline="", encoding="utf-8") as stream:
-        fields = ["condition", "instance_key", "trial", "status", "wall_clock_s",
-                  "time_budget_s", "error",
+        fields = ["condition", "instance_key", "trial", "status", "stop_reason", "wall_clock_s",
+                  "time_budget_s", "extensions", "error",
                   "input_tokens", "output_tokens", "cached_input_tokens", "cache_creation_tokens",
                   "total_tokens", "cost_usd", "cost_source", "tool_calls",
                   "score", "metric_value", "passed", "criteria"]
@@ -417,6 +441,7 @@ def _report(directory: Path, records: list[dict]):
         writer.writeheader()
         for record in records:
             writer.writerow({**record, **record.get("usage", {}),
+                             "extensions": len(record.get("extensions", [])),
                              "criteria": json.dumps(record.get("criteria", {}), sort_keys=True)})
 
 

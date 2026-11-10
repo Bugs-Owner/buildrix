@@ -167,7 +167,7 @@ def test_adapter_clears_inherited_memory_config_and_hub_credentials(tmp_path, mo
     monkeypatch.setenv("ANTHROPIC_API_KEY", "other-provider-key")
 
     class Process:
-        returncode = 0
+        returncode, pid = 0, 0
         def __init__(self, command, **kwargs):
             captured.append(kwargs["env"])
             kwargs["stdout"].write(b'{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}\n')
@@ -209,7 +209,7 @@ def test_container_mounts_only_current_workspace_and_excludes_hub_credentials(tm
     monkeypatch.setenv("BUILDRIX_TOKEN", "hub-secret")
 
     class Process:
-        returncode = 0
+        returncode, pid = 0, 0
         def __init__(self, command, **kwargs):
             captured.append((command, kwargs["env"]))
             kwargs["stdout"].write(b'{"type":"result","usage":{},"is_error":false}\n')
@@ -269,7 +269,7 @@ def test_subscription_auth_passes_only_login(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "should-not-pass")
 
     class Process:
-        returncode = 0
+        returncode, pid = 0, 0
         def __init__(self, command, **kwargs):
             env = kwargs["env"]
             captured.append(env)
@@ -300,7 +300,7 @@ def test_subscription_auth_passes_only_login(tmp_path, monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", lambda command, **kw: (
         seen.append(Path(kw["env"]["CLAUDE_CONFIG_DIR"], ".credentials.json").read_text()),
         kw["stdout"].write(b'{"type":"result","usage":{}}\n'),
-        SimpleNamespace(returncode=0, communicate=lambda *a, **k: None))[-1])
+        SimpleNamespace(returncode=0, pid=0, communicate=lambda *a, **k: None))[-1])
     assert CLIAgent("claude", "m", auth="subscription").run(work, "task").ok
     assert seen == ["claude-login"]
     with pytest.raises(ValueError):
@@ -314,7 +314,7 @@ def test_routine_rate_limit_events_and_timeouts_are_not_tagged(tmp_path, monkeyp
     outputs = []
 
     class Process:
-        returncode = 1
+        returncode, pid = 1, 0
         def __init__(self, command, **kwargs):
             kwargs["stdout"].write(outputs.pop(0))
         def communicate(self, prompt, timeout):

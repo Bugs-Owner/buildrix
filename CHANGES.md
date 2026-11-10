@@ -2,11 +2,13 @@
 
 ## Unreleased
 
-- Studies set a time budget per task (`time:` in the study manifest; explicit
-  per-task values, an optional factor x a reference run, else a default). The
-  agent is told its budget and warned at 75% and 90% through
-  `TIME_REMAINING.txt`; at the deadline it is stopped gracefully and its
-  outputs are graded as a `timed_out` run. Runs record their budget and machine.
+- Studies set an expected time per task (`time:` in the study manifest;
+  explicit per-task values, an optional factor x a reference run, else a
+  default; at least 15 minutes). Runs that keep changing files or computing
+  are extended past it up to a ceiling (4x by default); stalled, looping or
+  non-progressing runs are stopped, always after a notice in
+  `TIME_REMAINING.txt`, and graded on their outputs as `stopped` runs. Runs
+  record their budget, extensions, stop reason and machine.
   Runner version 2.1.0: finish studies prepared earlier with the older runner.
 - `task draft rubric ID --data table.json` saves a task's Evaluation scoring
   table; the interactive wizard builds the table step by step.

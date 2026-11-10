@@ -1,10 +1,15 @@
 schema: buildrix-study/1
 trials: 3
 seed: 42
-# Time per run is set by the study, per task, the same for every agent.
+# Expected time per run, set by the study per task, the same for every agent.
+# Runs making progress are extended up to the ceiling; stalled runs stop.
 # (An older `timeout_s: N` still works and means time.default_s: N.)
 time:
   default_s: 3600
+  # extend: 0.5                 # defaults shown
+  # ceiling: 4
+  # stall_s: 1200
+  # min_s: 900
   # tasks:                      # tasks that legitimately need longer
   #   YOUR_LONG_TASK_CODE: 36000
   # reference:                  # or: factor x a reference run on this machine

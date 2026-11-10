@@ -47,8 +47,11 @@ for research runs. No command starts a paid model merely to test configuration.
 ## Time budgets
 
 Contributors do not set run time; the study does, per task, because machines
-differ. `prepare` freezes one budget per task, so every agent and condition on
-a task gets the same one:
+differ. A budget is the time a run is **expected** to take, not a deadline: a
+run that keeps making progress may continue past it, up to a hard ceiling, and
+a run that stalls is stopped, even before its budget. `prepare` freezes the
+budget, extension rule and ceiling per task, so every agent and condition on a
+task gets the same ones:
 
 ```yaml
 time:
@@ -59,30 +62,56 @@ time:
     results: ./reference-results
     model: claude-opus-5-5 # optional: only this agent's runs count
     factor: 3
+  min_s: 900               # shorter budgets are raised to this (recorded)
+  extend: 0.5              # each extension: this share of the budget
+  ceiling: 4               # hard stop: this multiple of the budget
+  stall_s: 1200            # stop after this long with nothing happening
 ```
 
 With `reference`, run a reference agent on the study's machine first (a
 generous budget, ordinary `prepare`/`batch`), then point `results` at that
 results directory. A task's budget becomes `factor` x its longest completed
-reference wall time, rounded up to a minute. Failed or timed-out reference runs
+reference wall time, rounded up to a minute. Stopped or failed reference runs
 do not count; tasks without a completed reference run get `default_s`.
 
-The agent is told its budget and the deadline (UTC) in its brief, and asked to
-write deliverables early, keep them current, and finalize when time is short.
-The runner keeps `TIME_REMAINING.txt` in the workspace up to date (every
-minute) and changes its status to `TIME IS SHORT` at 75% and `FINAL WARNING`
-at 90% of the budget. Through `BASH_ENV`, every bash command the agent runs
-after that also prints the file to stderr, so the warning reaches an agent that
-never reads the file, as long as its shell is bash. At the deadline the agent
-gets SIGTERM (`docker stop` for Docker; native Windows is killed at once) and
-is killed 30 s later. Its outputs are archived and graded as usual and the run
-is marked `timed_out`; it counts as the agent's result, not a run error.
+Every minute the runner samples three signals it can measure reliably:
+workspace files added, removed or changed; new transcript or stderr output
+(except the same tool call repeated six times in a row, which is a loop); and
+CPU use of the agent's processes of at least 0.1 core, so a long training or
+simulation counts as work. CPU is read from `/proc` (Linux, Apptainer), a
+Windows job object, or `docker stats`; it is unknown on native macOS. GPU use
+is not read directly; a process driving a GPU normally keeps a core busy.
 
-Each record keeps `time_budget_s`, `time_budget_source`, the seconds at which
-warnings were written (`time_notices_s`) and `machine`: OS, architecture, CPU
-model and count, usable CPUs, memory, cgroup memory limit, NVIDIA GPUs and the
-Slurm allocation when present. No hostname, user or path is recorded. The
-group's `run_config` carries the budget and the machines it ran on.
+| Stop reason | Rule |
+| --- | --- |
+| `stalled` | No file change, output or CPU for `stall_s`, at any time |
+| `loop` | The same, while the only output is one repeated tool call |
+| `no_progress` | At the budget, and at the end of each extension, no file change or CPU in the last `extend` period. Output alone is not progress past the budget. Otherwise the run is extended by `extend` |
+| `ceiling` | The hard limit, so a study always finishes |
+| `exited` | The agent ended by itself (status `completed` or `failed`) |
+
+The brief gives the expected time as guidance (plan for it, write deliverables
+early and keep them current), says a run still making progress may continue
+up to the hard limit, and that stalled runs are stopped. `TIME_REMAINING.txt`
+in the workspace shows time used and any notice: `EXPECTED TIME NEARLY USED`
+at 75%, `PAST EXPECTED TIME` after the budget, `NO PROGRESS` or `NO ACTIVITY`
+before those stops, and `FINAL WARNING` before the ceiling. Every stop is
+announced there at least 5 minutes ahead (less only when `stall_s` is under
+10 minutes). Through `BASH_ENV`, every bash
+command the agent runs also prints the file to stderr while it holds a
+notice, so an agent that never reads the file still sees it, as long as its
+shell is bash. A stop sends SIGTERM (`docker stop` for Docker; native Windows
+is killed at once) and kills the process tree 30 s later. Outputs are archived
+and graded as usual; the run's status is `stopped`, which counts as the
+agent's result, not a run error.
+
+Each record keeps `time_budget_s`, `time_budget_source`, `stop_reason`,
+`wall_clock_s`, `extensions` (when, until when, and the evidence: seconds since
+the last file change and since CPU was last busy), `time_notices` (each status
+shown to the agent and when) and `machine`: OS, architecture, CPU model and
+count, usable CPUs, memory, cgroup memory limit, NVIDIA GPUs and the Slurm
+allocation when present. No hostname, user or path is recorded. The group's
+`run_config` carries the time policy and the machines it ran on.
 
 ## Experimental comparisons
 

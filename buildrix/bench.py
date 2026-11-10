@@ -241,17 +241,19 @@ def _duration(seconds: float) -> str:
     return f"{round(seconds / 60)} minutes" if seconds >= 120 else f"{seconds} seconds"
 
 
-def time_brief(budget_s: int, deadline: float) -> str:
+def time_brief(budget_s: int, start: float, ceiling_s: int) -> str:
     """What every agent is told about its time, in the same words for all."""
-    end = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(deadline))
-    return (f"Time budget: {_duration(budget_s)} of wall-clock time, until {end}. "
-            "At that time the run is stopped and graded on whatever is in outputs/. "
-            "Write a first version of every deliverable early and keep it updated as "
-            "you improve it, so outputs/ always holds your best complete answer. "
-            "TIME_REMAINING.txt in the workspace shows the time left; read it between "
-            "steps (`cat TIME_REMAINING.txt`) and avoid single commands that run longer "
-            "than the time left. When it says time is short, stop exploring, finalize the "
-            "deliverables and any report in outputs/, and finish.")
+    at = lambda t: time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(t))
+    return (f"Expected time: about {_duration(budget_s)} of wall-clock time (until "
+            f"{at(start + budget_s)}). Plan your work for that time: write a first version "
+            "of every deliverable early and keep it updated, so outputs/ always holds your "
+            "best complete answer. A run that is still making progress may continue past "
+            f"the expected time, up to a hard limit of {_duration(ceiling_s)} (until "
+            f"{at(start + ceiling_s)}); a run that stalls or stops making progress is "
+            "stopped. A stopped run is graded on whatever is in outputs/. "
+            "TIME_REMAINING.txt in the workspace shows the time used and any notice, and a "
+            "notice always appears there before a stop; read it between steps "
+            "(`cat TIME_REMAINING.txt`).")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -269,9 +271,11 @@ class AgentResult:
     usage: dict = field(default_factory=dict)
     stderr: str = ""
     agent_version: str = ""
-    timed_out: bool = False
-    #: Seconds into the run at which each time warning was written.
-    time_notices: list = field(default_factory=list)
+    #: Why the run ended: "exited" (by itself) or the runner's stop rule
+    #: ("stalled", "loop", "no_progress", "ceiling"); "" if not watched.
+    stop_reason: str = ""
+    extensions: list = field(default_factory=list)  # each with its evidence
+    time_notices: list = field(default_factory=list)  # each status shown to the agent
 
 
 class CommandAgent:
