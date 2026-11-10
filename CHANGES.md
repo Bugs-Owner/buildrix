@@ -4,7 +4,7 @@
 
 - Studies set an expected time per task (`time:` in the study manifest;
   explicit per-task values, an optional factor x a reference run, else a
-  default; at least 15 minutes). Runs that keep changing files or computing
+  default; at least 15 minutes). Runs that keep changing outputs/ or computing
   are extended past it up to a ceiling (4x by default); stalled, looping or
   non-progressing runs are stopped, always after a notice in
   `TIME_REMAINING.txt`, and graded on their outputs as `stopped` runs. Runs

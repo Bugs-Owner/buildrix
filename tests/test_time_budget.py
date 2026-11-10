@@ -72,6 +72,13 @@ while True:
     Path("outputs/progress.txt").write_text(str(i)); i += 1
     time.sleep(0.2)
 """
+# Seen in a real run: a heartbeat file kept a run alive past its budget.
+SCRATCH = START + """
+i = 0
+while True:  # busy-looking, but nothing under outputs/ changes
+    Path("heartbeat.txt").write_text(str(i)); i += 1
+    time.sleep(0.2)
+"""
 SILENT = START + """
 time.sleep(120)
 """
@@ -135,7 +142,7 @@ def test_run_that_keeps_changing_files_is_extended_past_its_budget(tmp_path, mon
     result, ws, notices = run(tmp_path, monkeypatch, WORKING, timeout_s=2, extend_s=1, ceiling_s=20, stall_s=3)
     assert result.ok and result.stop_reason == "exited" and result.wall_clock_s > 4
     assert len(result.extensions) >= 2
-    assert all(e["evidence"]["files_changed_s_ago"] <= 1 for e in result.extensions)
+    assert all(e["evidence"]["outputs_changed_s_ago"] <= 1 for e in result.extensions)
     assert "PAST EXPECTED TIME" in notices
     assert (ws / "outputs/answer.txt").read_text() == "final"
 
@@ -176,6 +183,13 @@ def test_ceiling_is_the_hard_stop_and_is_announced_ahead(tmp_path, monkeypatch):
     final = next(n for n in result.time_notices if n["status"] == "FINAL WARNING")
     assert final["at_s"] <= 4 - 1  # lead here: min(300 s, stall/2, budget/2) = 1 s
     assert (ws / "outputs/progress.txt").exists()
+
+
+def test_only_outputs_count_as_progress_past_the_budget(tmp_path, monkeypatch):
+    result, ws, notices = run(tmp_path, monkeypatch, SCRATCH, timeout_s=2, extend_s=1, ceiling_s=20, stall_s=10)
+    assert result.stop_reason == "no_progress"  # not "stalled": the scratch file is activity
+    assert not result.extensions and "NO PROGRESS" in notices
+    assert (ws / "heartbeat.txt").exists()
 
 
 def test_talking_without_files_or_computation_is_not_progress_past_the_budget(tmp_path, monkeypatch):

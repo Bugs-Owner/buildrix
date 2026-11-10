@@ -7,6 +7,7 @@ agent to read it), and BASH_ENV makes every bash command print that file once
 it holds a notice. Each step (a minute) the runner samples what it can see:
 
   files   something in the workspace was added, removed or changed
+  outputs the same, under outputs/ only (where deliverables are graded)
   output  the transcript or stderr grew, other than one tool call repeated
           LOOP_REPEATS times in a row (a loop is not activity) or harness
           keep-alive events (Claude Code's tool_progress, every 30 s)
@@ -16,10 +17,14 @@ it holds a notice. Each step (a minute) the runner samples what it can see:
 
 Stop rules, the same for every agent on a task:
 
-  stalled / loop  no files, output or cpu for stall_s, at any time
+  stalled / loop  no files, output or cpu for stall_s, at any time; any file
+                  in the workspace counts, since a script writing scratch
+                  files is not stalled
   no_progress     at the expected time, and at the end of each extension, the
-                  run is extended by extend_s if files changed or cpu was busy
-                  in the last extend_s; otherwise it is stopped
+                  run is extended by extend_s if something under outputs/
+                  changed or cpu was busy in the last extend_s; otherwise it
+                  is stopped. Heartbeat or scratch files elsewhere do not
+                  extend a run
   ceiling         the hard limit, so a study always finishes
 
 Every stop is announced in TIME_REMAINING.txt first: at least WARN_LEAD_S
@@ -27,7 +32,7 @@ before the ceiling, a no-progress stop or a stall stop. GPU use is not read
 directly; a process driving a GPU normally keeps a CPU core busy too.
 
 Not implemented, by design: a model judge for the ambiguous case (output but
-no files or CPU past the expected time) would plug in at the checkpoint in
+no outputs/ change or CPU past the expected time) would plug in at the checkpoint in
 ``watch`` as ``judge(transcript_tail, budget_s, elapsed_s) -> (progressing,
 reason)`` and its verdict and reason would go into the extension's evidence.
 """
@@ -111,8 +116,11 @@ class Activity:
         self.cpu, self.cpu_at = (cpu_seconds() if cpu_seconds else None), time.monotonic()
 
     def _files(self):
-        count = size = newest = 0
+        """(count, bytes, newest mtime) of the whole workspace and of outputs/."""
+        everything, outputs = [0, 0, 0], [0, 0, 0]
+        prefix = os.path.join(str(self.workspace), "outputs")
         for root, _, names in os.walk(self.workspace):
+            under_outputs = root == prefix or root.startswith(prefix + os.sep)
             for name in names:
                 if root == str(self.workspace) and name in (CLOCK_FILE, f".{CLOCK_FILE}.tmp", BASH_FILE):
                     continue
@@ -120,8 +128,11 @@ class Activity:
                     stat = os.stat(os.path.join(root, name))
                 except OSError:
                     continue
-                count, size, newest = count + 1, size + stat.st_size, max(newest, stat.st_mtime_ns)
-        return count, size, newest
+                for total in [everything] + ([outputs] if under_outputs else []):
+                    total[0] += 1
+                    total[1] += stat.st_size
+                    total[2] = max(total[2], stat.st_mtime_ns)
+        return tuple(everything), tuple(outputs)
 
     def _sizes(self):
         return [path.stat().st_size if path.exists() else 0 for path in self.logs]
@@ -152,7 +163,8 @@ class Activity:
         keeps its baseline for the next one.
         """
         files, sizes, now = self._files(), self._sizes(), time.monotonic()
-        seen = {"files": files != self.files, "output": self._new_output(sizes),
+        seen = {"files": files[0] != self.files[0], "outputs": files[1] != self.files[1],
+                "output": self._new_output(sizes),
                 "cpu": None, "looping": False}
         if self.cpu_seconds:
             if self.cpu is None:
@@ -264,7 +276,7 @@ def watch(proc, prompt: bytes, workspace: Path, activity: Activity, start: float
     lead = min(WARN_LEAD_S, stall_s / 2, budget_s / 2)
     # Notices go out a little before `lead`, so a late wake-up never shortens it.
     early = lead + min(5.0, step)
-    last_active = last_files = last_cpu = start
+    last_active = last_outputs = last_cpu = start
     stop_at, shown, data, looping = None, "ok", prompt, False
     clock = lambda t: time.strftime("%H:%M UTC", time.gmtime(t))
     while True:
@@ -278,8 +290,8 @@ def watch(proc, prompt: bytes, workspace: Path, activity: Activity, start: float
             status, advice = "NO ACTIVITY", (f"Nothing has happened for {_duration(idle)}. The run is "
                 f"stopped at {clock(last_active + stall_s)} unless work continues. Finalize outputs/.")
         elif stop_at:
-            status, advice = "NO PROGRESS", (f"Past the expected time and no files changed or computation "
-                f"ran in the last {_duration(extend_s)}. The run is stopped at {clock(stop_at)} "
+            status, advice = "NO PROGRESS", (f"Past the expected time and nothing in outputs/ changed "
+                f"and no computation ran in the last {_duration(extend_s)}. The run is stopped at {clock(stop_at)} "
                 "unless that changes. Make sure every deliverable in outputs/ is written.")
         elif now >= start + budget_s:
             status, advice = "PAST EXPECTED TIME", ("Keep going only if you are making progress; "
@@ -313,7 +325,7 @@ def watch(proc, prompt: bytes, workspace: Path, activity: Activity, start: float
             # The runner itself was paused (machine asleep, node frozen): time it
             # did not watch is not the agent's idle time.
             last_active = now
-        last_files = now if seen["files"] else last_files
+        last_outputs = now if seen["outputs"] else last_outputs
         last_cpu = now if seen["cpu"] else last_cpu
         looping = seen["looping"] if seen["output"] else looping
         if seen["files"] or seen["cpu"] or (seen["output"] and not looping):
@@ -323,11 +335,11 @@ def watch(proc, prompt: bytes, workspace: Path, activity: Activity, start: float
         if now - last_active >= stall_s:
             return "loop" if looping else "stalled"
         if now >= checkpoint:
-            if now - max(last_files, last_cpu) <= extend_s:
+            if now - max(last_outputs, last_cpu) <= extend_s:
                 checkpoint, stop_at = min(ceiling, now + extend_s), None
                 log["extensions"].append({"at_s": round(now - start, 1),
                     "until_s": round(checkpoint - start, 1),
-                    "evidence": {"files_changed_s_ago": round(now - last_files, 1),
+                    "evidence": {"outputs_changed_s_ago": round(now - last_outputs, 1),
                                  "cpu_busy_s_ago": round(now - last_cpu, 1)}})
             elif stop_at is None:
                 stop_at = now + lead  # announce first, then stop

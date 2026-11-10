@@ -90,9 +90,9 @@ ends the job object (the whole process tree) at once.
 
 | Stop reason | Rule |
 | --- | --- |
-| `stalled` | No file change, output or CPU for `stall_s`, at any time |
+| `stalled` | No file change anywhere in the workspace, no output and no CPU for `stall_s`, at any time |
 | `loop` | The same, while the only output is one repeated tool call |
-| `no_progress` | At the budget, and at the end of each extension, no file change or CPU in the last `extend` period. Output alone is not progress past the budget. Otherwise the run is extended by `extend` |
+| `no_progress` | At the budget, and at the end of each extension, no change under `outputs/` and no CPU in the last `extend` period. Output alone, and heartbeat or scratch files elsewhere in the workspace, are not progress past the budget. Otherwise the run is extended by `extend` |
 | `ceiling` | The hard limit, so a study always finishes |
 | `exited` | The agent ended by itself (status `completed` or `failed`) |
 
@@ -113,7 +113,7 @@ agent's result, not a run error.
 
 Each record keeps `time_budget_s`, `time_budget_source`, `stop_reason`,
 `wall_clock_s`, `extensions` (when, until when, and the evidence: seconds since
-the last file change and since CPU was last busy), `time_notices` (each status
+the last change under `outputs/` and since CPU was last busy), `time_notices` (each status
 shown to the agent and when) and `machine`: OS, architecture, CPU model and
 count, usable CPUs, memory, cgroup memory limit, NVIDIA GPUs and the Slurm
 allocation when present. No hostname, user or path is recorded. The group's
