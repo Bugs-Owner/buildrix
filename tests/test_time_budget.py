@@ -38,6 +38,12 @@ def done():
 DILIGENT = START + """
 while status() == "status: ok":
     time.sleep(0.05)
+for _ in range(20):  # the runner may be replacing the file this instant
+    try:
+        Path("outputs/notice.txt").write_text(Path("TIME_REMAINING.txt").read_text())
+        break
+    except OSError:
+        time.sleep(0.05)
 done()
 """
 WORKING = START + """
@@ -46,11 +52,19 @@ for i in range(30):  # keeps changing files for ~6 s
     time.sleep(0.2)
 done()
 """
-COMPUTING = START + """
-end = time.time() + 5  # silent number crunching: no files, no output
+# Silent number crunching by a tool the agent runs: no files, no output.
+CRUNCH = ("import time; end = time.time() + 5; "
+          "[sum(i * i for i in range(10000)) for _ in iter(lambda: time.time() < end, False)]")
+COMPUTING = START + f"""
+import subprocess
+subprocess.run([sys.executable, "-c", "{CRUNCH}"])
+done()
+"""
+# The CLI itself busy (as an idle harness sometimes is), with no tool running.
+SELF_BUSY = START + """
+end = time.time() + 30
 while time.time() < end:
     sum(i * i for i in range(10000))
-done()
 """
 ENDLESS = START + """
 i = 0
@@ -61,10 +75,24 @@ while True:
 SILENT = START + """
 time.sleep(120)
 """
+LATE_CHILD = START + """
+import subprocess
+subprocess.Popen([sys.executable, "-c",
+    "import time; time.sleep(4); open('outputs/late.txt', 'w').write('too late')"])
+time.sleep(120)
+"""
 TALKING = START + """
 i = 0
 while True:  # new output, but no files and no computation
     print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": str(i)}}), flush=True)
+    i += 1
+    time.sleep(0.2)
+"""
+HEARTBEAT = START + """
+i = 0
+while True:  # Claude Code while one tool call blocks: only keep-alive events
+    print(json.dumps({"type": "tool_progress", "tool_name": "Bash", "elapsed_time_seconds": i,
+                      "heartbeat": True}), flush=True)
     i += 1
     time.sleep(0.2)
 """
@@ -98,6 +126,9 @@ def test_agent_reads_the_reminder_and_finishes(tmp_path, monkeypatch):
     assert result.ok and result.stop_reason == "exited"
     assert (ws / "outputs/answer.txt").read_text() == "final"
     assert notices == ["EXPECTED TIME NEARLY USED"] and 2.5 <= result.time_notices[0]["at_s"] < 4
+    # The reminder is guidance; a real agent read the old wording as "finalize now".
+    reminder = (ws / "outputs/notice.txt").read_text()
+    assert "This is not a stop" in reminder and "finish the step" not in reminder
 
 
 def test_run_that_keeps_changing_files_is_extended_past_its_budget(tmp_path, monkeypatch):
@@ -111,9 +142,15 @@ def test_run_that_keeps_changing_files_is_extended_past_its_budget(tmp_path, mon
 
 @pytest.mark.skipif(sys.platform == "darwin", reason="no CPU meter for native macOS")
 def test_silent_computation_counts_as_progress(tmp_path, monkeypatch):
-    result, ws, _ = run(tmp_path, monkeypatch, COMPUTING, timeout_s=2, extend_s=1, ceiling_s=20, stall_s=2)
+    result, ws, _ = run(tmp_path, monkeypatch, COMPUTING, timeout_s=2, extend_s=1, ceiling_s=20, stall_s=4)
     assert result.ok and result.stop_reason == "exited"
     assert result.extensions and result.extensions[0]["evidence"]["cpu_busy_s_ago"] <= 1
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="no CPU meter for native macOS")
+def test_the_agent_clis_own_cpu_is_not_computation(tmp_path, monkeypatch):
+    result, ws, _ = run(tmp_path, monkeypatch, SELF_BUSY, timeout_s=60, stall_s=2)
+    assert result.stop_reason == "stalled"
 
 
 def test_stalled_run_is_stopped_before_its_budget_and_keeps_outputs(tmp_path, monkeypatch):
@@ -124,6 +161,13 @@ def test_stalled_run_is_stopped_before_its_budget_and_keeps_outputs(tmp_path, mo
     assert notices == ["NO ACTIVITY"]  # announced before the stop
     assert (ws / "outputs/answer.txt").read_text() == "draft"
     assert (ws / "TIME_REMAINING.txt").read_text().startswith("status: STOPPED")
+
+
+def test_stop_ends_the_whole_process_tree(tmp_path, monkeypatch):
+    result, ws, _ = run(tmp_path, monkeypatch, LATE_CHILD, timeout_s=60, stall_s=2)
+    assert result.stop_reason == "stalled"
+    time.sleep(5)  # the child would have written by now
+    assert not (ws / "outputs/late.txt").exists()
 
 
 def test_ceiling_is_the_hard_stop_and_is_announced_ahead(tmp_path, monkeypatch):
@@ -139,6 +183,13 @@ def test_talking_without_files_or_computation_is_not_progress_past_the_budget(tm
     assert result.stop_reason == "no_progress"
     assert "NO PROGRESS" in notices and not result.extensions
     assert result.wall_clock_s < 2 + 1 + 15
+
+
+def test_harness_heartbeats_are_not_activity(tmp_path, monkeypatch):
+    # Found in a real Claude Code run: tool_progress events every 30 s kept a
+    # run blocked in one silent command from ever counting as stalled.
+    result, ws, notices = run(tmp_path, monkeypatch, HEARTBEAT, timeout_s=60, stall_s=2)
+    assert result.stop_reason == "stalled" and notices == ["NO ACTIVITY"]
 
 
 def test_repeating_the_same_call_is_a_loop_not_activity(tmp_path, monkeypatch):

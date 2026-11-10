@@ -8,9 +8,11 @@ it holds a notice. Each step (a minute) the runner samples what it can see:
 
   files   something in the workspace was added, removed or changed
   output  the transcript or stderr grew, other than one tool call repeated
-          LOOP_REPEATS times in a row (a loop is not activity)
-  cpu     the agent's processes used at least CPU_BUSY of a core; a long
-          training or simulation counts (unknown on native macOS)
+          LOOP_REPEATS times in a row (a loop is not activity) or harness
+          keep-alive events (Claude Code's tool_progress, every 30 s)
+  cpu     processes the agent started used at least CPU_BUSY of a core; a
+          long training or simulation counts. The CLI's own CPU is left out
+          natively (Linux, Windows) but not in containers; unknown on macOS
 
 Stop rules, the same for every agent on a task:
 
@@ -67,6 +69,15 @@ def write_clock(workspace: Path, text: str):
             time.sleep(0.02 * (attempt + 1))
 
 
+def is_heartbeat(line: str) -> bool:
+    """A harness keep-alive event (Claude Code's ``tool_progress``), not agent output."""
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(event, dict) and (event.get("type") == "tool_progress" or event.get("heartbeat") is True)
+
+
 def tool_calls(transcript_tail: str) -> list[str]:
     """Each tool call in a Claude or Codex JSONL transcript, as comparable text."""
     calls = []
@@ -97,7 +108,7 @@ class Activity:
         # Either a cumulative CPU-seconds reader or a direct "busy now?" check.
         self.cpu_seconds, self.cpu_busy = cpu_seconds, cpu_busy
         self.files, self.sizes = self._files(), self._sizes()
-        self.cpu, self.at = (cpu_seconds() if cpu_seconds else None), time.monotonic()
+        self.cpu, self.cpu_at = (cpu_seconds() if cpu_seconds else None), time.monotonic()
 
     def _files(self):
         count = size = newest = 0
@@ -115,15 +126,44 @@ class Activity:
     def _sizes(self):
         return [path.stat().st_size if path.exists() else 0 for path in self.logs]
 
-    def sample(self) -> dict:
+    def _new_output(self, sizes) -> bool:
+        """Did the agent write anything new, apart from its harness's heartbeats?
+
+        Claude Code writes a ``tool_progress`` heartbeat every 30 s while a tool
+        runs; that says the harness is alive, not that the agent did anything.
+        """
+        for path, old, new in zip(self.logs, self.sizes, sizes):
+            if new - old > 1_000_000:
+                return True
+            if new > old:
+                with path.open("rb") as stream:
+                    stream.seek(old)
+                    text = stream.read(new - old).decode("utf-8", "replace")
+                if any(line.strip() and not is_heartbeat(line) for line in text.splitlines()):
+                    return True
+        return False
+
+    def sample(self, cpu_window_s: float = 1.0) -> dict:
+        """What changed since the last sample.
+
+        CPU use is judged over at least ``cpu_window_s`` (never under 1 s):
+        Windows counts CPU time in 15.6 ms ticks, so one tick in a short window
+        would look like a busy core. A shorter sample reports no new CPU use and
+        keeps its baseline for the next one.
+        """
         files, sizes, now = self._files(), self._sizes(), time.monotonic()
-        seen = {"files": files != self.files, "output": sizes != self.sizes,
+        seen = {"files": files != self.files, "output": self._new_output(sizes),
                 "cpu": None, "looping": False}
         if self.cpu_seconds:
-            cpu = self.cpu_seconds()
-            if cpu is not None and self.cpu is not None:
-                seen["cpu"] = (cpu - self.cpu) / max(now - self.at, 1e-6) >= CPU_BUSY
-            self.cpu = cpu
+            if self.cpu is None:
+                self.cpu, self.cpu_at = self.cpu_seconds(), now
+            elif now - self.cpu_at >= max(1.0, cpu_window_s):
+                cpu = self.cpu_seconds()
+                if cpu is not None:
+                    seen["cpu"] = (cpu - self.cpu) / (now - self.cpu_at) >= CPU_BUSY
+                self.cpu, self.cpu_at = cpu, now
+            else:
+                seen["cpu"] = False
         elif self.cpu_busy:
             seen["cpu"] = self.cpu_busy()
         if seen["output"] and self.logs and self.logs[0].exists():
@@ -131,13 +171,14 @@ class Activity:
                 stream.seek(max(0, sizes[0] - 256_000))
                 calls = tool_calls(stream.read().decode("utf-8", "replace"))
             seen["looping"] = len(calls) >= LOOP_REPEATS and len(set(calls[-LOOP_REPEATS:])) == 1
-        self.files, self.sizes, self.at = files, sizes, now
+        self.files, self.sizes = files, sizes
         return seen
 
 
 def session_cpu_seconds(session: int):
-    """Linux: CPU seconds of every process in the agent's session, finished
-    children included. None where /proc is not available."""
+    """Linux: CPU seconds of the processes the agent CLI started (its session,
+    finished children included), not the CLI's own: an idle CLI has bursts of
+    its own. None where /proc is not available."""
     if not Path("/proc/self/stat").exists():
         return None
     ticks = 0
@@ -147,12 +188,19 @@ def session_cpu_seconds(session: int):
         except (OSError, IndexError):
             continue
         if int(fields[3]) == session:  # field 6, session id
-            ticks += sum(int(x) for x in fields[11:15])  # utime stime cutime cstime
+            # utime stime cutime cstime; the CLI itself (the session leader) only
+            # contributes the time of its finished children.
+            own = stat.parent.name == str(session)
+            ticks += sum(int(x) for x in fields[13 if own else 11:15])
     return ticks / os.sysconf("SC_CLK_TCK")
 
 
 class WindowsJob:
-    """Windows: CPU seconds of a process and all its descendants, via a job object."""
+    """Windows: CPU seconds of all descendants of the agent CLI, via a job object.
+
+    The CLI's own time is subtracted: an idle CLI has bursts of its own (seen
+    in a real run: 1.5 s in 11 s), which are not the agent's computation.
+    """
 
     def __init__(self, pid: int):
         import ctypes
@@ -163,11 +211,12 @@ class WindowsJob:
         kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
                                                      wintypes.DWORD, ctypes.c_void_p]
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.c_void_p] * 4
+        kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
         self.kernel, self.job = kernel, kernel.CreateJobObjectW(None, None)
-        process = kernel.OpenProcess(0x0100 | 0x0001, False, pid)  # SET_QUOTA | TERMINATE
-        self.ok = bool(self.job and process and kernel.AssignProcessToJobObject(self.job, process))
-        if process:
-            kernel.CloseHandle(process)
+        # SET_QUOTA | TERMINATE | QUERY_LIMITED_INFORMATION; kept open to read its times.
+        self.process = kernel.OpenProcess(0x0100 | 0x0001 | 0x1000, False, pid)
+        self.ok = bool(self.job and self.process and kernel.AssignProcessToJobObject(self.job, self.process))
 
     def cpu_seconds(self):
         ctypes = self.ctypes
@@ -175,14 +224,20 @@ class WindowsJob:
             _fields_ = [(n, ctypes.c_longlong) for n in ("user", "kernel", "period_user", "period_kernel")] + [
                 (n, ctypes.c_ulong) for n in ("faults", "processes", "active", "terminated")]
         info = Accounting()
+        times = [ctypes.c_longlong() for _ in range(4)]  # creation, exit, kernel, user
         if not self.ok or not self.kernel.QueryInformationJobObject(
-                self.job, 1, ctypes.byref(info), ctypes.sizeof(info), None):
+                self.job, 1, ctypes.byref(info), ctypes.sizeof(info), None) or not                 self.kernel.GetProcessTimes(self.process, *map(ctypes.byref, times)):
             return None
-        return (info.user + info.kernel) / 1e7
+        return (info.user + info.kernel - times[2].value - times[3].value) / 1e7
+
+    def kill(self) -> bool:
+        """End every process in the tree at once (no extra process launched)."""
+        return bool(self.ok and self.kernel.TerminateJobObject(self.job, 1))
 
     def close(self):
-        if self.job:
-            self.kernel.CloseHandle(self.job)
+        for handle in (self.job, self.process):
+            if handle:
+                self.kernel.CloseHandle(handle)
 
 
 def docker_busy(container: str):
@@ -230,8 +285,10 @@ def watch(proc, prompt: bytes, workspace: Path, activity: Activity, start: float
             status, advice = "PAST EXPECTED TIME", ("Keep going only if you are making progress; "
                 f"make sure every deliverable in outputs/ is written. Hard limit {clock(ceiling)}.")
         elif now >= start + REMIND_AT * budget_s:
+            # Guidance, not a stop: a run that is making progress may go on.
             status, advice = "EXPECTED TIME NEARLY USED", ("Make sure every deliverable in outputs/ "
-                "is written and current; finish the step you are on before starting new ones.")
+                "is written and current. This is not a stop: you may keep working past the "
+                "expected time while you are making progress.")
         else:
             status, advice = "ok", ""
         write_clock(workspace, f"status: {status}\n"
@@ -251,7 +308,7 @@ def watch(proc, prompt: bytes, workspace: Path, activity: Activity, start: float
             return "exited"
         except subprocess.TimeoutExpired:
             data = None  # the prompt went in on the first call
-        now, seen = time.time(), activity.sample()
+        now, seen = time.time(), activity.sample(cpu_window_s=step / 2)
         if now - planned > max(10, 2 * step):
             # The runner itself was paused (machine asleep, node frozen): time it
             # did not watch is not the agent's idle time.

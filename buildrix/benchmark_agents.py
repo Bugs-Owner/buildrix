@@ -250,10 +250,10 @@ class CLIAgent:
                             self.timeout_s, self.extend_s, self.ceiling_s, self.stall_s, log)
                         if reason != "exited":
                             error = f"STOPPED ({reason}) after {_duration(time.time() - start)}"
-                            self._stop(proc, container_name, STOP_GRACE_S)
+                            self._stop(proc, container_name, STOP_GRACE_S, job)
                             time_watch.write_clock(workspace, f"status: STOPPED\nThe run was stopped ({reason}).\n")
                     except BaseException:
-                        self._stop(proc, container_name)
+                        self._stop(proc, container_name, job=job)
                         raise
                     finally:
                         if job:
@@ -312,7 +312,7 @@ class CLIAgent:
         except OSError:
             pass
 
-    def _stop(self, proc, container_name: str = "", grace_s: float = 0):
+    def _stop(self, proc, container_name: str = "", grace_s: float = 0, job=None):
         """Stop the agent: a polite stop first when grace_s > 0, then the kill.
 
         The polite stop lets in-flight file writes finish; the agent's chance to
@@ -333,7 +333,9 @@ class CLIAgent:
         # Always end with the kill: children that outlived the agent (a training
         # script, say) must not keep writing to outputs/ while it is collected.
         if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+            # The job object holds the whole tree; taskkill is the fallback.
+            if not (job and job.kill()):
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
         else:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)

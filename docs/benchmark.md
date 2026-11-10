@@ -76,11 +76,17 @@ do not count; tasks without a completed reference run get `default_s`.
 
 Every minute the runner samples three signals it can measure reliably:
 workspace files added, removed or changed; new transcript or stderr output
-(except the same tool call repeated six times in a row, which is a loop); and
-CPU use of the agent's processes of at least 0.1 core, so a long training or
-simulation counts as work. CPU is read from `/proc` (Linux, Apptainer), a
-Windows job object, or `docker stats`; it is unknown on native macOS. GPU use
-is not read directly; a process driving a GPU normally keeps a core busy.
+(except the same tool call repeated six times in a row, which is a loop, and
+Claude Code's `tool_progress` keep-alive events, which it writes every 30 s
+while any tool runs); and CPU use of at least 0.1 core, averaged over half a
+step or more, by the processes the agent starts, so a long training or
+simulation counts as work. The agent CLI's own CPU does not count: an idle
+Claude Code was measured using 13% of a core in one 11 s window. CPU is read
+from `/proc` (native Linux), a Windows job object, or `docker stats`. Under
+Apptainer and Docker the CLI's own CPU is still included (a 60 s step dilutes
+its bursts). It is unknown on native macOS. GPU use is not read directly; a
+process driving a GPU normally keeps a core busy. On native Windows the stop
+ends the job object (the whole process tree) at once.
 
 | Stop reason | Rule |
 | --- | --- |
