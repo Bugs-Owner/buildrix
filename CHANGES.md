@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The Human knowledge condition stages the contributor's knowledge files under
+  `knowledge/` beside `DETAILED_INSTRUCTION.md`; the brief is the same in every
+  condition (the hub's LLM-integrated task rewrite is gone). Runner version 2.2.0.
 - Studies set an expected time per task (`time:` in the study manifest;
   explicit per-task values, an optional factor x a reference run, else a
   default; at least 15 minutes). Runs that keep changing outputs/ or computing

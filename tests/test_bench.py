@@ -132,15 +132,24 @@ def test_the_control_prompt_never_mentions_the_extras():
     assert "SECRET" not in text
 
 
-def test_integrated_instruction_prompt_replaces_the_base_only_for_instruction_conditions():
-    task = {**TASK, "instruction_prompt": "Plot supply air against setpoint, then identify and rank AHU-3 faults."}
+def test_human_knowledge_files_reach_only_the_knowledge_conditions(tmp_path):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("controller.py", "print('expert')\n")
+        z.writestr("../escape.py", "no")
+    task = {**TASK, "knowledge_files": ["controller.py"]}
     for condition in bench.CONDITIONS:
-        prompt = bench._prompt_for(condition, task, "library", task["detailed_instruction"], "ahu-fdd-helper")
-        assert (task["instruction_prompt"] in prompt) == ("instruction" in condition)
-        assert (task["canonical_prompt"] in prompt) == ("instruction" not in condition)
-        assert "DETAILED_INSTRUCTION.md" not in prompt
-        assert "library" in prompt
-        assert ("skills/ahu-fdd-helper/" in prompt) == ("skill" in condition)
+        ws = tmp_path / condition
+        ws.mkdir()
+        bench._stage(ws, _package(), condition, None, task["detailed_instruction"],
+                     knowledge=buf.getvalue())
+        prompt = bench._prompt_for(condition, task, "library", task["detailed_instruction"], "")
+        wanted = "instruction" in condition
+        assert (ws / "knowledge" / "controller.py").is_file() is wanted
+        assert ("knowledge/: controller.py" in prompt) is wanted
+        # The brief itself is the same in every condition.
+        assert task["canonical_prompt"] in prompt and "library" in prompt
+    assert not (tmp_path / "escape.py").exists()
 
 
 def test_the_skill_and_instruction_are_pointed_at_not_pasted_in():

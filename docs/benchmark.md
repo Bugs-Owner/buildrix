@@ -20,7 +20,7 @@ buildrix benchmark prepare --manifest study.yaml --output bundle
 buildrix benchmark batch --bundle bundle --output results
 ```
 
-Preparation snapshots public task packages, instruction treatments, skills,
+Preparation snapshots public task packages, Human knowledge (text and files), skills,
 models, per-task time budgets, trial count and execution settings. It registers each group
 with the hub before any agent starts. The author receives the same public input
 package as every other benchmark runner; private reference answers stay on the
@@ -121,14 +121,16 @@ allocation when present. No hostname, user or path is recorded. The group's
 
 ## Experimental comparisons
 
-| Condition | Task and inputs | Expert instructions | Skill |
+| Condition | Task and inputs | Human knowledge | Skill |
 | --- | --- | --- | --- |
 | `task` | Yes | No | No |
 | `task_instruction` | Yes | Yes | No |
 | `task_skill` | Yes | No | Yes |
 | `task_instruction_skill` | Yes | Yes | Yes |
 
-Task-only studies use the first two conditions. Every declared task instance
+Human knowledge is the contributor's text, staged as `DETAILED_INSTRUCTION.md`,
+and any files they attached to it, staged under `knowledge/`. The brief is the
+same in every condition. Task-only studies use the first two conditions. Every declared task instance
 and trial receives all applicable conditions. The seeded execution order is
 shuffled to reduce order effects; it does not seed a provider's model sampling.
 There is no resumed conversation, shared output directory or shared agent home

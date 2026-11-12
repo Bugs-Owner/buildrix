@@ -362,3 +362,61 @@ def test_initial_request_study_is_graded_locally_not_uploaded(tmp_path):
     batch.write_json(manifest, {**batch.read_json(manifest), "conditions": ["task", bench.INITIAL]})
     with pytest.raises(ValueError):
         batch.prepare(manifest, tmp_path / "bundle2", hub)
+
+
+def test_resume_retries_interrupted_trial_when_asked(tmp_path):
+    bundle, hub = prepared(tmp_path, trials=1)
+
+    class Interrupted(FakeAgent):
+        def run(self, workspace, prompt):
+            raise KeyboardInterrupt()
+
+    output = tmp_path / "results"
+    with pytest.raises(KeyboardInterrupt):
+        batch.run_batch(bundle, output, agent_factory=Interrupted, retries=1)
+    FakeAgent.calls = []
+    result = batch.run_batch(bundle, output, agent_factory=FakeAgent, retries=1)
+    records = batch.read_json(output / "job-00000/group.json")["records"]
+    assert result[0]["run_errors"] == 0
+    assert all(r["status"] == "completed" for r in records)
+    assert max(r["attempt"] for r in records) == 2
+    assert list((output / "job-00000/retired").glob("record-*-attempt1"))
+
+
+class KnowledgeHub(Hub):
+    """A task whose Human knowledge includes a file, as TCTL-0018 does."""
+
+    def benchmark_task(self, ref):
+        snapshot = super().benchmark_task(ref)
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as archive:
+            archive.writestr("controller.py", "print('expert')\n")
+        data = stream.getvalue()
+        snapshot["task"]["knowledge_files"] = ["controller.py"]
+        return {**snapshot, "knowledge_base64": base64.b64encode(data).decode(),
+                "knowledge_sha256": bench.sha256_bytes(data)}
+
+
+class SeeingAgent(FakeAgent):
+    seen = {}
+
+    def run(self, workspace, prompt):
+        self.seen[prompt] = (workspace / "knowledge" / "controller.py").is_file()
+        return super().run(workspace, prompt)
+
+
+def test_human_knowledge_files_are_frozen_and_staged_for_the_knowledge_condition(tmp_path):
+    manifest = tmp_path / "study.json"
+    batch.write_json(manifest, {"schema": "buildrix-study/1", "trials": 1,
+        "agents": [{"provider": "codex", "model": "fixed-model"}],
+        "pairs": [{"tasks": ["T001"]}], "execution": {"backend": "native"}})
+    bundle = tmp_path / "bundle"
+    batch.prepare(manifest, bundle, KnowledgeHub())
+    assert (bundle / "tasks/0-knowledge.zip").is_file()
+    SeeingAgent.calls, SeeingAgent.seen = [], {}
+    batch.run_batch(bundle, tmp_path / "results", agent_factory=SeeingAgent)
+    staged = {("knowledge/: controller.py" in p): seen for p, seen in SeeingAgent.seen.items()}
+    assert staged == {True: True, False: False}   # only the knowledge condition gets it
+    (bundle / "tasks/0-knowledge.zip").write_bytes(b"different")
+    with pytest.raises(ValueError, match="changed"):
+        batch.run_batch(bundle, tmp_path / "again", agent_factory=SeeingAgent)

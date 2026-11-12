@@ -136,8 +136,8 @@ def prepare(manifest_path: Path, destination: Path, api) -> dict:
             if ref not in snapshots:
                 plan = bench.prepare_task(api, ref)
                 if (not conditions or "task_instruction" in conditions) and not (
-                        plan.task.get("instruction_prompt") or plan.task.get("detailed_instruction")):
-                    raise ValueError(f"{ref} has no instruction treatment; revise the task first")
+                        plan.task.get("detailed_instruction") or plan.knowledge):
+                    raise ValueError(f"{ref} has no Human knowledge; revise the task first")
                 if conditions and bench.INITIAL in conditions:
                     # The original request is visible to the task's author and admins only.
                     initial = (api.get(f"/tasks/{ref}") or {}).get("initial_request") or ""
@@ -148,8 +148,14 @@ def prepare(manifest_path: Path, destination: Path, api) -> dict:
                 package_path = destination / package_rel
                 package_path.parent.mkdir(exist_ok=True)
                 package_path.write_bytes(plan.package)
+                knowledge_rel = ""
+                if plan.knowledge:
+                    knowledge_rel = f"tasks/{len(snapshots)}-knowledge.zip"
+                    (destination / knowledge_rel).write_bytes(plan.knowledge)
                 snapshots[ref] = {"task": plan.task, "instances": plan.instances,
-                    "package": package_rel, "package_digest": bench.sha256_bytes(plan.package)}
+                    "package": package_rel, "package_digest": bench.sha256_bytes(plan.package),
+                    "knowledge": knowledge_rel,
+                    "knowledge_digest": bench.sha256_bytes(plan.knowledge) if plan.knowledge else ""}
             # One budget per task, decided before any agent runs: same for every agent.
             budget = budgets.for_task(ref, snapshots[ref]["task"]["task_code"])
             for agent in spec["agents"]:
@@ -296,7 +302,12 @@ def _snapshot_path(bundle: Path, relative: str) -> Path:
 
 
 def run_batch(bundle: Path, output: Path, *, api=None, shard_index=0, shard_count=1,
-              agent_factory=CLIAgent) -> list[dict]:
+              agent_factory=CLIAgent, retries=0) -> list[dict]:
+    """Run this shard's jobs, skipping finished trials.
+
+    retries: how many times a trial whose worker died mid-run is started again.
+    0 keeps it as an "interrupted" record instead.
+    """
     if not 0 <= shard_index < shard_count:
         raise ValueError("Require 0 <= shard-index < shard-count")
     study = _load_study(bundle)
@@ -318,7 +329,7 @@ def run_batch(bundle: Path, output: Path, *, api=None, shard_index=0, shard_coun
             if (directory / "group.json").exists():
                 group = read_json(directory / "group.json")
             else:
-                group = _run_job(bundle, study, job, directory, agent_factory)
+                group = _run_job(bundle, study, job, directory, agent_factory, retries)
                 write_json(directory / "group.json", group)
             if api:
                 results.append(_sync_group(api, directory))
@@ -335,12 +346,14 @@ def model_label(agent: dict) -> str:
     return agent["model"] + (f"@{agent['effort']}" if agent.get("effort") else "")
 
 
-def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> dict:
+def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory, retries=0) -> dict:
     package = _snapshot_path(bundle, job["package"]).read_bytes()
+    knowledge = _snapshot_path(bundle, job["knowledge"]).read_bytes() if job.get("knowledge") else b""
     skill = _snapshot_path(bundle, job["skill"]) if job["skill"] else None
     if bench.sha256_bytes(package) != job["package_digest"] or (
+            knowledge and bench.sha256_bytes(knowledge) != job["knowledge_digest"]) or (
             skill and bench.digest_path(skill) != job["skill_digest"]):
-        raise ValueError("A frozen task or skill package changed")
+        raise ValueError("A frozen task, Human knowledge or skill package changed")
     budget = job["time_budget"]
     agent = factory(**job["agent"], **study["execution"], timeout_s=budget["wall_clock_s"],
                     extend_s=budget["extend_s"], ceiling_s=budget["ceiling_s"], stall_s=budget["stall_s"])
@@ -354,15 +367,28 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
         record_dir = directory / f"record-{ordinal:05d}"
         record_dir.mkdir(exist_ok=True)
         record_path = record_dir / "record.json"
+        attempt = 1
         if record_path.exists():
             record = read_json(record_path)
-            if record.get("status") == "started":
-                record.update(status="interrupted", error="Previous worker stopped; trial was not rerun")
-                write_json(record_path, record)
-            records.append(record)
-            continue
-        print(f"{job['id']} [{ordinal+1}/{len(schedule)}] {condition} trial {trial}", flush=True)
+            attempt = record.get("attempt", 1)
+            if record.get("status") == "started" and attempt <= retries:
+                # The worker died mid-trial (preemption, node failure, time limit).
+                # Keep its evidence and start the trial again from a fresh workspace.
+                retired = directory / "retired" / f"{record_dir.name}-attempt{attempt}"
+                retired.parent.mkdir(exist_ok=True)
+                shutil.move(str(record_dir), str(retired))
+                record_dir.mkdir()
+                attempt += 1
+            else:
+                if record.get("status") == "started":
+                    record.update(status="interrupted", error="Previous worker stopped; trial was not rerun")
+                    write_json(record_path, record)
+                records.append(record)
+                continue
+        print(f"{job['id']} [{ordinal+1}/{len(schedule)}] {condition} trial {trial}"
+              + (f" (attempt {attempt})" if attempt > 1 else ""), flush=True)
         record = {"condition": condition, "instance_key": instance, "trial": trial,
+                  "attempt": attempt,
                   "status": "started", "started_at": time.time(), "score": None,
                   "metric_value": None, "passed": False, "artifacts": [], "usage": {},
                   "error": "", "wall_clock_s": 0, "tokens": 0, "tool_calls": 0,
@@ -373,7 +399,8 @@ def _run_job(bundle: Path, study: dict, job: dict, directory: Path, factory) -> 
             workspace = Path(tmp)
             try:
                 bench._stage(workspace, package, condition, skill,
-                             job["task"].get("detailed_instruction", ""), job["skill_name"])
+                             job["task"].get("detailed_instruction", ""), job["skill_name"],
+                             knowledge)
                 prompt = bench._prompt_for(condition, job["task"], instance,
                     job["task"].get("detailed_instruction", ""), job["skill_name"])
                 # The clock starts now; the brief and the runner's watch agree.

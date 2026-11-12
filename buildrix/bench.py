@@ -36,6 +36,8 @@ CONDITIONS = [
 #: The contributor's original, unstructured request with only the input data.
 #: Measures what structuring the task is worth. Graded by the hub, not uploaded.
 INITIAL = "task_initial"
+#: Where the Human knowledge files go in a workspace (instruction conditions only).
+KNOWLEDGE_DIR = "knowledge"
 
 CONDITION_LABELS = {
     "task":                   "Agent",
@@ -46,7 +48,7 @@ CONDITION_LABELS = {
 
 #: Bump when what an agent sees or how a run is stopped changes; a prepared
 #: study only runs with the version that prepared it.
-RUNNER_VERSION = "2.1.0"
+RUNNER_VERSION = "2.2.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -496,6 +498,7 @@ class RunPlan:
     task: dict
     package: bytes
     instances: list[str]
+    knowledge: bytes = b""   # zip of the Human knowledge files, if the task has any
 
 
 def prepare_task(api: BuildrixAPI, ref: str) -> RunPlan:
@@ -504,14 +507,17 @@ def prepare_task(api: BuildrixAPI, ref: str) -> RunPlan:
     package = base64.b64decode(snapshot["package_base64"], validate=True)
     if sha256_bytes(package) != snapshot["package_sha256"]:
         raise ValueError("Task package digest mismatch")
+    knowledge = base64.b64decode(snapshot.get("knowledge_base64") or "", validate=True)
+    if knowledge and sha256_bytes(knowledge) != snapshot.get("knowledge_sha256"):
+        raise ValueError("Human knowledge digest mismatch")
     instances = [i.get("key") or i.get("label") or ""
                  for i in (task.get("instances") or [])] or [""]
-    return RunPlan(task=task, package=package, instances=instances)
+    return RunPlan(task=task, package=package, instances=instances, knowledge=knowledge)
 
 
 def _stage(workspace: Path, package: bytes, condition: str,
            skill_path: Optional[Path], detailed_instruction: str,
-           skill_name: str = "") -> None:
+           skill_name: str = "", knowledge: bytes = b"") -> None:
     """Build one condition's workspace from scratch.
 
     The Task's public half always goes in. The Skill goes in only for the
@@ -569,6 +575,17 @@ def _stage(workspace: Path, package: bytes, condition: str,
     if "instruction" in condition and detailed_instruction:
         (workspace / "DETAILED_INSTRUCTION.md").write_text(
             detailed_instruction, encoding="utf-8")
+    if "instruction" in condition and knowledge:
+        target = workspace / KNOWLEDGE_DIR
+        with zipfile.ZipFile(io.BytesIO(knowledge)) as z:
+            for info in z.infolist():
+                rel = info.filename.replace("\\", "/")
+                dest = target / rel
+                if (info.is_dir() or ".." in Path(rel).parts or ":" in rel
+                        or not dest.resolve().is_relative_to(target.resolve())):
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(z.read(info))
 
 
 def conditions_for(skill_path: Optional[Path]) -> list[str]:
@@ -579,8 +596,8 @@ def _prompt_for(condition: str, task: dict, instance: str,
                 detailed_instruction: str, skill_name: str) -> str:
     """The natural-language input for one condition.
 
-    Instruction conditions use the stored, integrated task revision. Older
-    tasks without one retain their original file-based instruction behavior.
+    The brief is the same in every condition; Human knowledge is added as
+    DETAILED_INSTRUCTION.md and its files under knowledge/.
     """
     if condition == INITIAL:
         return "\n\n".join(p for p in [
@@ -588,15 +605,18 @@ def _prompt_for(condition: str, task: dict, instance: str,
             f"Run this task for instance: {instance}." if instance else "",
             "Your working directory is the task workspace. Input files are in "
             "inputs/. Write every deliverable under outputs/."] if p.strip())
-    integrated = task.get("instruction_prompt") if "instruction" in condition else ""
-    parts = [integrated or task.get("canonical_prompt") or ""]
+    parts = [task.get("canonical_prompt") or ""]
     if instance:
         parts.append(f"Run this task for instance: {instance}.")
     parts.append("Your working directory is the task workspace. Write every "
                  "deliverable under outputs/.")
-    if "instruction" in condition and detailed_instruction and not integrated:
+    if "instruction" in condition and detailed_instruction:
         parts.append("A detailed procedure written by an experienced engineer is "
                      "in DETAILED_INSTRUCTION.md. Read it before you start.")
+    files = task.get("knowledge_files") or []
+    if "instruction" in condition and files:
+        parts.append(f"Files the engineer provided with it are in {KNOWLEDGE_DIR}/: "
+                     + ", ".join(files) + ".")
     if "skill" in condition and skill_name:
         parts.append(f"A reusable Skill is available at skills/{skill_name}/. "
                      f"Read its SKILL.md and follow it where it applies.")
@@ -661,7 +681,7 @@ def run_benchmark(
                 workspace = Path(tempfile.mkdtemp(prefix="buildrix-run-"))
                 try:
                     _stage(workspace, plan.package, condition,
-                           skill_path, detailed, skill_name)
+                           skill_path, detailed, skill_name, plan.knowledge)
                     prompt = _prompt_for(condition, task, instance,
                                          detailed, skill_name)
                     result = agent.run(workspace, prompt)
