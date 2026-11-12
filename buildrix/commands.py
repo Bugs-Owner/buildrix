@@ -620,7 +620,8 @@ def benchmark_study(args) -> int:
             return 0
         if args.verb == "batch":
             responses = batch.run_batch(Path(args.bundle).resolve(), Path(args.output).resolve(),
-                api=None if offline else _api(), shard_index=args.shard_index, shard_count=args.shard_count)
+                api=None if offline else _api(), shard_index=args.shard_index, shard_count=args.shard_count,
+                retries=getattr(args, "retry_interrupted", 0))
         else:
             responses = batch.sync(Path(args.output).resolve(), _api())
         pending = sum(bool(r.get("error")) for r in responses)

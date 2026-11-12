@@ -219,6 +219,8 @@ def main():
     q.add_argument("--offline", action="store_true", help="Defer grading/upload until sync")
     q.add_argument("--shard-index", type=int, default=0)
     q.add_argument("--shard-count", type=int, default=1)
+    q.add_argument("--retry-interrupted", type=int, default=0, metavar="N",
+                   help="Restart a trial up to N times if its worker died mid-run")
     q = bm.add_parser("sync", help="Retry all pending grading/uploads without rerunning agents")
     q.add_argument("--output", required=True)
 
